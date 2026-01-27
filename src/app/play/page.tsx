@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, createDeck, shuffleDeck, cardsToHandNotation } from '@/lib/deck';
-import { Coach, CoachMessage, COACH_PROMPTS, useCoachTyping } from '@/components/Coach';
+import { Coach, CoachMessage, pick, COACH_VOICE, answerQuestion } from '@/components/Coach';
 import { LiveTable, TableSeat, generatePlayerName } from '@/components/LiveTable';
 import { PLAYER_PROFILES, PlayerType, generateRandomPlayerType } from '@/lib/player-types';
 import { OPENING_RANGES, THREE_BET_RANGES, Position, POSITIONS, POSITION_NAMES } from '@/lib/preflop-ranges';
@@ -29,7 +29,6 @@ function generateInitialState(handNumber: number): GameState {
   const positions: Position[] = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
   const heroPosition = positions[Math.floor(Math.random() * positions.length)];
 
-  // Generate seats
   const seats: TableSeat[] = positions.map((pos, i) => ({
     position: pos,
     playerType: pos === heroPosition ? 'UNKNOWN' : generateRandomPlayerType(),
@@ -44,7 +43,7 @@ function generateInitialState(handNumber: number): GameState {
 
   return {
     phase: 'intro',
-    heroHand: null, // Hidden initially
+    heroHand: null,
     heroPosition,
     board: [],
     pot: 1.5,
@@ -58,9 +57,8 @@ export default function PlayPage() {
   const [game, setGame] = useState<GameState>(() => generateInitialState(1));
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [showReference, setShowReference] = useState(false);
-  const { isTyping, simulateTyping } = useCoachTyping();
+  const [isThinking, setIsThinking] = useState(false);
 
-  // Add a coach message
   const addMessage = useCallback((
     type: CoachMessage['type'],
     content: string,
@@ -68,7 +66,7 @@ export default function PlayPage() {
     waitingForResponse = false
   ) => {
     const newMessage: CoachMessage = {
-      id: Date.now().toString(),
+      id: Date.now().toString() + Math.random(),
       type,
       content,
       options,
@@ -77,227 +75,224 @@ export default function PlayPage() {
     setMessages(prev => [...prev, newMessage]);
   }, []);
 
-  // Start a new hand
+  const coachSays = useCallback((content: string, options?: string[], wait = false) => {
+    setIsThinking(true);
+    const delay = 300 + Math.min(content.length * 15, 1200) + Math.random() * 400;
+    setTimeout(() => {
+      setIsThinking(false);
+      addMessage('coach', content, options, wait);
+    }, delay);
+  }, [addMessage]);
+
+  // Quick coach response (no typing delay for follow-ups)
+  const coachQuick = useCallback((content: string, options?: string[], wait = false) => {
+    setIsThinking(true);
+    setTimeout(() => {
+      setIsThinking(false);
+      addMessage('coach', content, options, wait);
+    }, 400);
+  }, [addMessage]);
+
   const startHand = useCallback(() => {
     const newGame = generateInitialState(game.handNumber + 1);
     setGame(newGame);
     setMessages([]);
+    setShowReference(false);
 
-    // Coach introduces the situation
-    simulateTyping(() => {
-      addMessage('coach', `Hand #${newGame.handNumber}. You're in ${newGame.heroPosition}.`);
+    coachSays(`Hand #${newGame.handNumber}. You're ${newGame.heroPosition}.`);
+
+    setTimeout(() => {
+      const heroIdx = POSITIONS.indexOf(newGame.heroPosition);
+      const playersBefore = newGame.seats
+        .filter(s => !s.isHero && POSITIONS.indexOf(s.position as Position) < heroIdx);
+
+      if (playersBefore.length > 0) {
+        const playersStr = playersBefore.map(s => {
+          const shortType = PLAYER_PROFILES[s.playerType].name.split('-')[0].split(' ')[0];
+          return `${s.position} (${shortType})`;
+        }).join(', ');
+        coachSays(`Players to act: ${playersStr}`);
+      }
 
       setTimeout(() => {
-        simulateTyping(() => {
-          // Get info about players who act before hero
-          const heroIdx = POSITIONS.indexOf(newGame.heroPosition);
-          const playersBeforeHero = newGame.seats
-            .filter(s => !s.isHero && POSITIONS.indexOf(s.position as Position) < heroIdx)
-            .map(s => `${s.position} (${PLAYER_PROFILES[s.playerType].name.split(' ')[0]})`);
+        coachSays(
+          `Before I show your cards - what should ${newGame.heroPosition} be opening?`,
+          ['Tight', 'Medium', 'Wide', 'Depends'],
+          true
+        );
+        setGame(prev => ({ ...prev, phase: 'preflop_think' }));
+      }, 1200);
+    }, 1000);
+  }, [game.handNumber, coachSays]);
 
-          if (playersBeforeHero.length > 0) {
-            addMessage('coach', `Players before you: ${playersBeforeHero.join(', ')}.`);
-          }
-
-          setTimeout(() => {
-            simulateTyping(() => {
-              addMessage(
-                'coach',
-                `Before I show you your cards - what range should ${newGame.heroPosition} be opening? Think about it.`,
-                ['Wide range', 'Medium range', 'Tight range', 'Depends on table'],
-                true
-              );
-              setGame(prev => ({ ...prev, phase: 'preflop_think' }));
-            }, 60);
-          }, 800);
-        }, 40);
-      }, 600);
-    }, 30);
-  }, [game.handNumber, addMessage, simulateTyping]);
-
-  // Initialize first hand
+  // Initialize
   useEffect(() => {
-    simulateTyping(() => {
-      addMessage('coach', "Let's play some hands. I'm going to challenge you to think through each decision.");
-      setTimeout(() => {
-        simulateTyping(() => {
-          addMessage('coach', "I won't just tell you the answer - I want you to develop your own reads.");
-          setTimeout(() => {
-            simulateTyping(() => {
-              addMessage('coach', "Ready to start?", ['Deal me in'], true);
-            }, 40);
-          }, 600);
-        }, 50);
-      }, 600);
-    }, 50);
+    coachSays("Let's play. I'll ask you questions - you think, then decide.");
+    setTimeout(() => {
+      coachSays("Ask me anything if you're stuck. Ready?", ['Deal me in'], true);
+    }, 1500);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle user responses
-  const handleResponse = useCallback((response: string) => {
+  const handleResponse = useCallback((response: string, isCustomQuestion = false) => {
     addMessage('user', response);
 
-    if (response === 'Deal me in') {
+    // Handle free-form questions
+    if (isCustomQuestion) {
+      const ctx = {
+        hand: game.heroHand ? cardsToHandNotation(game.heroHand) : undefined,
+        position: game.heroPosition,
+        villainType: game.raiserType,
+        action: game.correctAction,
+      };
+
+      const answer = answerQuestion(response, ctx);
+      if (answer) {
+        coachSays(answer);
+        // After answering, prompt to continue if we were waiting
+        setTimeout(() => {
+          if (game.phase === 'preflop_think') {
+            coachQuick("Anyway - what range from here?", ['Tight', 'Medium', 'Wide', 'Depends'], true);
+          } else if (game.phase === 'preflop_action') {
+            const hand = game.heroHand ? cardsToHandNotation(game.heroHand) : 'your hand';
+            coachQuick(`Back to it. ${hand}. What's the play?`, ['Fold', 'Open'], true);
+          } else if (game.phase === 'facing_raise') {
+            coachQuick("So what are you doing?", ['Fold', 'Call', '3-Bet'], true);
+          } else if (game.phase === 'lesson' || game.phase === 'result') {
+            coachQuick("Next hand?", ['Deal'], true);
+          }
+        }, 1500);
+        return;
+      } else {
+        // Generic response to unknown question
+        coachSays("Good question. Let's keep it simple though - make your read, then we'll talk.");
+        setTimeout(() => {
+          if (game.phase === 'preflop_think') {
+            coachQuick("Range from here?", ['Tight', 'Medium', 'Wide', 'Depends'], true);
+          }
+        }, 1200);
+        return;
+      }
+    }
+
+    // Handle button clicks
+    if (response === 'Deal me in' || response === 'Deal' || response === 'Next hand') {
       startHand();
       return;
     }
 
-    if (response === 'Next hand') {
-      startHand();
-      return;
-    }
-
-    if (response === 'Show me the range') {
+    if (response === 'Show range') {
       setShowReference(true);
-      setTimeout(() => {
-        simulateTyping(() => {
-          addMessage('coach', "Study it. Notice how the range tightens from early position. Now let's continue.", ['Got it'], true);
-        }, 40);
-      }, 500);
+      coachQuick("Study it. Notice how it changes by position.", ['Got it'], true);
       return;
     }
 
     if (response === 'Got it') {
       setShowReference(false);
-      handlePhaseTransition();
+      transitionToAction();
       return;
     }
 
-    // Handle different phases
+    // Phase-specific handling
     switch (game.phase) {
       case 'preflop_think':
-        handlePreflopThinkResponse(response);
+        handlePreflopThink(response);
         break;
       case 'preflop_action':
-        handlePreflopActionResponse(response);
+        handlePreflopAction(response);
         break;
       case 'facing_raise':
-        handleFacingRaiseResponse(response);
+        handleFacingRaise(response);
         break;
       case 'result':
-        handleResultResponse(response);
+        handleResult(response);
         break;
       case 'lesson':
-        // Continue to next hand
         startHand();
         break;
     }
-  }, [game.phase, addMessage, startHand, simulateTyping]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [game, addMessage, coachSays, coachQuick, startHand]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handlePhaseTransition = () => {
-    // After showing range, move to action
+  const transitionToAction = () => {
     const heroSeat = game.seats.find(s => s.isHero);
     if (!heroSeat?.cards) return;
 
     const hand = heroSeat.cards;
     const notation = cardsToHandNotation(hand);
-
     setGame(prev => ({ ...prev, heroHand: hand }));
 
-    simulateTyping(() => {
-      addMessage('coach', `Alright, let's see what you've got...`);
-      setTimeout(() => {
-        simulateTyping(() => {
-          addMessage('coach', `You look down at ${notation}.`);
-          // Determine if facing a raise
-          const shouldFaceRaise = Math.random() > 0.6 && game.heroPosition !== 'UTG';
+    coachSays(`Alright. You look down at ${notation}.`);
 
-          if (shouldFaceRaise) {
-            // Someone raises before us
-            const heroIdx = POSITIONS.indexOf(game.heroPosition);
-            const earlierPlayers = game.seats.filter(s =>
-              !s.isHero && POSITIONS.indexOf(s.position as Position) < heroIdx
-            );
+    setTimeout(() => {
+      // Decide if facing a raise
+      const shouldFaceRaise = Math.random() > 0.55 && game.heroPosition !== 'UTG';
+      const heroIdx = POSITIONS.indexOf(game.heroPosition);
+      const earlierPlayers = game.seats.filter(s =>
+        !s.isHero && POSITIONS.indexOf(s.position as Position) < heroIdx
+      );
 
-            if (earlierPlayers.length > 0) {
-              const raiser = earlierPlayers[Math.floor(Math.random() * earlierPlayers.length)];
-              const raiseSize = 2.5 + Math.random() * 1.5;
+      if (shouldFaceRaise && earlierPlayers.length > 0) {
+        const raiser = earlierPlayers[Math.floor(Math.random() * earlierPlayers.length)];
+        const raiseSize = 2.5 + Math.random() * 1.5;
+        const shortType = PLAYER_PROFILES[raiser.playerType].name.split('-')[0].split(' ')[0];
 
-              setGame(prev => ({
-                ...prev,
-                phase: 'facing_raise',
-                raiserPosition: raiser.position as Position,
-                raiserType: raiser.playerType,
-                pot: prev.pot + raiseSize,
-                seats: prev.seats.map(s =>
-                  s.position === raiser.position
-                    ? { ...s, lastAction: `RAISE ${raiseSize.toFixed(1)}`, currentBet: raiseSize }
-                    : s
-                ),
-              }));
+        setGame(prev => ({
+          ...prev,
+          phase: 'facing_raise',
+          raiserPosition: raiser.position as Position,
+          raiserType: raiser.playerType,
+          pot: prev.pot + raiseSize,
+          seats: prev.seats.map(s =>
+            s.position === raiser.position
+              ? { ...s, lastAction: `RAISE ${raiseSize.toFixed(1)}`, currentBet: raiseSize }
+              : s
+          ),
+        }));
 
-              setTimeout(() => {
-                simulateTyping(() => {
-                  const raiserProfile = PLAYER_PROFILES[raiser.playerType];
-                  addMessage(
-                    'coach',
-                    `${raiser.name} in ${raiser.position} opens to ${raiseSize.toFixed(1)}bb. They've been playing like a ${raiserProfile.name.split(' ')[0]}.`
-                  );
-
-                  setTimeout(() => {
-                    simulateTyping(() => {
-                      addMessage(
-                        'coach',
-                        `What's their likely range here? And what does that mean for your ${notation}?`,
-                        ['Fold', 'Call', '3-Bet'],
-                        true
-                      );
-                    }, 50);
-                  }, 600);
-                }, 50);
-              }, 400);
-              return;
-            }
-          }
-
-          // RFI spot
-          setTimeout(() => {
-            simulateTyping(() => {
-              addMessage('coach', COACH_PROMPTS.pacing.commit, ['Fold', 'Open/Raise'], true);
-              setGame(prev => ({ ...prev, phase: 'preflop_action' }));
-            }, 30);
-          }, 600);
-        }, 30);
-      }, 500);
-    }, 30);
-  };
-
-  const handlePreflopThinkResponse = (response: string) => {
-    // Acknowledge their thinking about ranges
-    simulateTyping(() => {
-      const heroPos = game.heroPosition;
-      const expectedRange = OPENING_RANGES[heroPos];
-      const rangePercent = ((expectedRange.length / 169) * 100).toFixed(0);
-
-      if (response === 'Depends on table') {
-        addMessage('coach', `Good thinking - table dynamics matter. But we need a baseline. From ${heroPos}, standard is around ${rangePercent}% of hands.`);
+        coachSays(`${raiser.name} (${shortType}) opens to ${raiseSize.toFixed(1)}bb.`);
+        setTimeout(() => {
+          coachSays("What's the play?", ['Fold', 'Call', '3-Bet'], true);
+        }, 800);
       } else {
-        const isCorrect =
-          (heroPos === 'UTG' && response === 'Tight range') ||
-          (heroPos === 'BTN' && response === 'Wide range') ||
-          (['HJ', 'CO', 'SB'].includes(heroPos) && response === 'Medium range');
-
-        if (isCorrect) {
-          addMessage('coach', `Right. ${POSITION_NAMES[heroPos]} should be around ${rangePercent}% - that's a ${response.toLowerCase()}.`);
-        } else {
-          addMessage('coach', `Actually, ${POSITION_NAMES[heroPos]} should be about ${rangePercent}%. Position dictates range width.`);
-        }
+        setGame(prev => ({ ...prev, phase: 'preflop_action' }));
+        coachSays("Action on you.", ['Fold', 'Open'], true);
       }
-
-      setTimeout(() => {
-        simulateTyping(() => {
-          addMessage('coach', `Want to see the exact range, or trust your reads and see your cards?`, ['Show me the range', 'Show my cards'], true);
-        }, 40);
-      }, 600);
-    }, 50);
+    }, 1000);
   };
 
-  const handlePreflopActionResponse = (response: string) => {
+  const handlePreflopThink = (response: string) => {
+    const expectedRange = OPENING_RANGES[game.heroPosition];
+    const pct = Math.round((expectedRange.length / 169) * 100);
+
+    const isRight =
+      (game.heroPosition === 'UTG' && response === 'Tight') ||
+      (game.heroPosition === 'BTN' && response === 'Wide') ||
+      (['HJ', 'CO', 'SB'].includes(game.heroPosition) && response === 'Medium') ||
+      response === 'Depends';
+
+    if (response === 'Depends') {
+      coachSays(`Fair. But baseline from ${game.heroPosition}? About ${pct}%. ${pct < 20 ? 'Tight.' : pct > 30 ? 'Wide.' : 'Medium.'}`);
+    } else if (isRight) {
+      coachSays(`${pick(COACH_VOICE.good)} ~${pct}% from ${game.heroPosition}.`);
+    } else {
+      coachSays(`${pick(COACH_VOICE.notQuite)} ${game.heroPosition} should be ~${pct}%.`);
+    }
+
+    setTimeout(() => {
+      coachSays("Want the chart, or just show me your cards?", ['Show range', 'Show cards'], true);
+    }, 1000);
+  };
+
+  const handlePreflopAction = (response: string) => {
+    if (response === 'Show cards') {
+      transitionToAction();
+      return;
+    }
+
     if (!game.heroHand) return;
 
     const notation = cardsToHandNotation(game.heroHand);
     const shouldOpen = OPENING_RANGES[game.heroPosition].includes(notation);
-    const correctAction = shouldOpen ? 'Open/Raise' : 'Fold';
-    const isCorrect = response === correctAction;
+    const isCorrect = (response === 'Open' && shouldOpen) || (response === 'Fold' && !shouldOpen);
 
     setGame(prev => ({
       ...prev,
@@ -305,144 +300,145 @@ export default function PlayPage() {
       correctAction: shouldOpen ? 'open' : 'fold',
     }));
 
-    simulateTyping(() => {
-      if (isCorrect) {
-        addMessage('coach', getRandomPrompt(COACH_PROMPTS.feedback.correct));
+    if (isCorrect) {
+      coachSays(`${pick(COACH_VOICE.good)}`);
+      setTimeout(() => {
+        if (shouldOpen) {
+          coachQuick(`${notation} plays from ${game.heroPosition}. You've got equity and position works for you.`);
+        } else {
+          coachQuick(`${notation} is a fold here. Not enough equity, too many players behind.`);
+        }
         setTimeout(() => {
-          simulateTyping(() => {
-            // Ask follow-up to make sure they understand
-            if (shouldOpen) {
-              addMessage('coach', `Why does ${notation} work from ${game.heroPosition}?`, ['Good equity', 'Position', 'Both', "I'm not sure"], true);
-            } else {
-              addMessage('coach', `What would make ${notation} playable?`, ['Better position', 'Weaker opponents', 'Never playable', 'Not sure'], true);
-            }
-          }, 40);
-        }, 600);
-      } else {
-        addMessage('coach', getRandomPrompt(COACH_PROMPTS.feedback.incorrect));
+          coachQuick("Next?", ['Deal', 'Why?'], true);
+          setGame(prev => ({ ...prev, phase: 'lesson' }));
+        }, 1000);
+      }, 600);
+    } else {
+      coachSays(`${pick(COACH_VOICE.notQuite)}`);
+      setTimeout(() => {
+        if (shouldOpen) {
+          coachQuick(`${notation} is actually an open from ${game.heroPosition}. It's in the standard range.`);
+        } else {
+          coachQuick(`${notation} is a fold from ${game.heroPosition}. I know it looks okay but the math doesn't work.`);
+        }
         setTimeout(() => {
-          simulateTyping(() => {
-            if (shouldOpen) {
-              addMessage('coach', `${notation} is an open from ${game.heroPosition}. It's in the standard range.`);
-            } else {
-              addMessage('coach', `${notation} is a fold from ${game.heroPosition}. Too many players behind, not enough playability.`);
-            }
-            setTimeout(() => {
-              simulateTyping(() => {
-                addMessage('coach', `Let's see the range. Study where ${notation} sits.`, ['Show me the range'], true);
-              }, 30);
-            }, 600);
-          }, 50);
-        }, 600);
-      }
-    }, 40);
+          coachQuick("Want to see where it sits in the range?", ['Show range', 'Next hand'], true);
+        }, 1000);
+      }, 600);
+    }
   };
 
-  const handleFacingRaiseResponse = (response: string) => {
+  const handleFacingRaise = (response: string) => {
     if (!game.heroHand || !game.raiserPosition) return;
 
     const notation = cardsToHandNotation(game.heroHand);
     const threeBetRange = THREE_BET_RANGES[game.heroPosition]?.[game.raiserPosition] || [];
     const openRange = OPENING_RANGES[game.heroPosition];
 
-    let correctAction: 'Fold' | 'Call' | '3-Bet';
+    let correct: string;
+    let correctAction: 'fold' | 'call' | '3bet';
     if (threeBetRange.includes(notation)) {
-      correctAction = '3-Bet';
+      correct = '3-Bet';
+      correctAction = '3bet';
     } else if (openRange.includes(notation)) {
-      correctAction = 'Call';
+      correct = 'Call';
+      correctAction = 'call';
     } else {
-      correctAction = 'Fold';
+      correct = 'Fold';
+      correctAction = 'fold';
     }
 
-    const isCorrect = response === correctAction;
+    const isCorrect = response === correct;
 
     setGame(prev => ({
       ...prev,
       phase: 'result',
-      correctAction: correctAction.toLowerCase().replace('-', '') as any,
+      correctAction,
     }));
 
-    simulateTyping(() => {
-      if (isCorrect) {
-        addMessage('coach', getRandomPrompt(COACH_PROMPTS.feedback.correct));
+    if (isCorrect) {
+      coachSays(`${pick(COACH_VOICE.good)}`);
+      setTimeout(() => {
+        const shortType = PLAYER_PROFILES[game.raiserType!].name.split('-')[0].split(' ')[0];
+        if (correct === '3-Bet') {
+          coachQuick(`Against a ${shortType}, ${notation} has the goods to 3-bet. You want action.`);
+        } else if (correct === 'Call') {
+          coachQuick(`Calling is right. ${notation} plays but isn't strong enough to 3-bet for value.`);
+        } else {
+          coachQuick(`Good fold. ${notation} doesn't have the equity against their range.`);
+        }
         setTimeout(() => {
-          simulateTyping(() => {
-            if (correctAction === '3-Bet') {
-              addMessage('coach', `${notation} has the equity and blockers to 3-bet here. Against a ${PLAYER_PROFILES[game.raiserType!].name.split(' ')[0]}, this prints money.`);
-            } else if (correctAction === 'Call') {
-              addMessage('coach', `Calling is correct. ${notation} plays well postflop but isn't quite strong enough to 3-bet for value.`);
-            } else {
-              addMessage('coach', `Good fold. ${notation} doesn't have the equity to continue against this raise.`);
-            }
-            setTimeout(() => {
-              simulateTyping(() => {
-                addMessage('coach', 'Ready for the next hand?', ['Next hand'], true);
-                setGame(prev => ({ ...prev, phase: 'lesson' }));
-              }, 30);
-            }, 600);
-          }, 50);
-        }, 600);
-      } else {
-        addMessage('coach', getRandomPrompt(COACH_PROMPTS.feedback.incorrect));
+          coachQuick("Again?", ['Deal'], true);
+          setGame(prev => ({ ...prev, phase: 'lesson' }));
+        }, 1000);
+      }, 600);
+    } else {
+      coachSays(`${pick(COACH_VOICE.notQuite)} The play is ${correct.toLowerCase()}.`);
+      setTimeout(() => {
+        const shortType = PLAYER_PROFILES[game.raiserType!].name.split('-')[0].split(' ')[0];
+        if (correct === '3-Bet') {
+          coachQuick(`${notation} crushes a ${shortType}'s range here. 3-bet and get value.`);
+        } else if (correct === 'Call') {
+          coachQuick(`${notation} isn't strong enough to 3-bet but too good to fold. Just call.`);
+        } else {
+          coachQuick(`I know ${notation} looks okay but against this range you're crushed. Let it go.`);
+        }
         setTimeout(() => {
-          simulateTyping(() => {
-            addMessage('coach', `The correct play is ${correctAction}.`);
-            if (correctAction === '3-Bet') {
-              addMessage('coach', `${notation} has too much equity to just call, and good blockers to their continuing range.`);
-            } else if (correctAction === 'Call') {
-              addMessage('coach', `${notation} is good enough to see a flop, but 3-betting turns it into a bluff we don't need.`);
-            } else {
-              addMessage('coach', `Against this range, ${notation} just doesn't have the equity. We'd be burning money.`);
-            }
-            setTimeout(() => {
-              simulateTyping(() => {
-                addMessage('coach', 'Let\'s move on.', ['Next hand'], true);
-                setGame(prev => ({ ...prev, phase: 'lesson' }));
-              }, 30);
-            }, 600);
-          }, 50);
-        }, 600);
-      }
-    }, 40);
+          coachQuick("Next one?", ['Deal', 'Explain more'], true);
+          setGame(prev => ({ ...prev, phase: 'lesson' }));
+        }, 1000);
+      }, 600);
+    }
   };
 
-  const handleResultResponse = (response: string) => {
-    // Handle follow-up questions after correct/incorrect
-    simulateTyping(() => {
-      if (response === "I'm not sure" || response === 'Not sure') {
-        addMessage('coach', "That's honest. Let's break it down - position gives you information advantage. Equity is your chance to win. Both matter.");
+  const handleResult = (response: string) => {
+    if (response === 'Why?' || response === 'Explain more') {
+      const notation = game.heroHand ? cardsToHandNotation(game.heroHand) : 'the hand';
+      if (game.correctAction === 'fold') {
+        coachSays(`${notation} from ${game.heroPosition} just doesn't have enough going for it. Bad equity, bad position, or both. Folding saves money long-term.`);
+      } else if (game.correctAction === 'open') {
+        coachSays(`${notation} can make good hands - straights, flushes, pairs that hold up. From ${game.heroPosition}, that's enough to open.`);
+      } else if (game.correctAction === '3bet') {
+        coachSays(`When you 3-bet, you win when they fold AND when they call with worse. ${notation} does both against their range.`);
       } else {
-        addMessage('coach', "Good. Keep building those mental shortcuts. Pattern recognition comes with reps.");
+        coachSays(`Calling keeps you in the pot without bloating it. ${notation} wants to see a flop cheap and hit something.`);
       }
       setTimeout(() => {
-        simulateTyping(() => {
-          addMessage('coach', 'Ready for another?', ['Next hand'], true);
-          setGame(prev => ({ ...prev, phase: 'lesson' }));
-        }, 30);
-      }, 600);
-    }, 40);
-  };
+        coachQuick("Make sense?", ['Yeah', 'Not really'], true);
+      }, 1200);
+      return;
+    }
 
-  // Helper to get random prompt
-  function getRandomPrompt(prompts: string[]): string {
-    return prompts[Math.floor(Math.random() * prompts.length)];
-  }
+    if (response === 'Not really') {
+      coachSays(`${pick(COACH_VOICE.simpler)} Every decision is: "Am I making money long-term?" If yes, do it. If no, don't. That's it.`);
+      setTimeout(() => {
+        coachQuick("Keep playing. It'll click.", ['Deal'], true);
+        setGame(prev => ({ ...prev, phase: 'lesson' }));
+      }, 1000);
+      return;
+    }
+
+    if (response === 'Yeah' || response === 'Next hand') {
+      startHand();
+      return;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       {/* Header */}
       <header className="p-4 border-b border-gray-800 flex justify-between items-center">
-        <Link href="/" className="text-gray-400 hover:text-white transition">
+        <Link href="/" className="text-gray-400 hover:text-white transition text-sm">
           ← Back
         </Link>
-        <h1 className="text-xl font-bold">Live Table Training</h1>
-        <div className="text-sm text-gray-400">
-          Hand #{game.handNumber}
+        <h1 className="text-lg font-bold">Live Training</h1>
+        <div className="text-sm text-gray-500">
+          #{game.handNumber}
         </div>
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col lg:flex-row">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Table view */}
         <div className="lg:w-1/2 p-4 flex flex-col">
           <LiveTable
@@ -457,9 +453,9 @@ export default function PlayPage() {
 
           {/* Reference panel */}
           {showReference && (
-            <div className="mt-4 p-4 bg-gray-900 rounded-xl">
+            <div className="mt-4 p-4 bg-gray-900 rounded-xl max-h-[300px] overflow-auto">
               <h3 className="text-sm font-semibold mb-2 text-gray-400">
-                Opening Range from {game.heroPosition}
+                {game.heroPosition} Opening Range
               </h3>
               <RangeGrid
                 selectedHands={OPENING_RANGES[game.heroPosition]}
@@ -471,12 +467,12 @@ export default function PlayPage() {
         </div>
 
         {/* Coach chat */}
-        <div className="lg:w-1/2 border-t lg:border-t-0 lg:border-l border-gray-800 flex flex-col min-h-[400px]">
+        <div className="lg:w-1/2 flex-1 border-t lg:border-t-0 lg:border-l border-gray-800 flex flex-col min-h-[350px] lg:min-h-0">
           <Coach
             messages={messages}
             onResponse={handleResponse}
-            isThinking={isTyping}
-            coachName="Coach"
+            isThinking={isThinking}
+            allowFreeText={true}
           />
         </div>
       </div>
