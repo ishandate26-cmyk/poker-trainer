@@ -21,13 +21,22 @@ interface CoachProps {
 export function Coach({ messages, onResponse, isThinking = false, coachName = 'Coach' }: CoachProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const lastMessageId = useRef<string | null>(null);
+
+  const lastMessage = messages[messages.length - 1];
+  const showOptions = lastMessage?.waitingForResponse && lastMessage?.options;
+
+  // Reset selected option when a new question appears
+  useEffect(() => {
+    if (lastMessage?.id !== lastMessageId.current) {
+      lastMessageId.current = lastMessage?.id || null;
+      setSelectedOption(null);
+    }
+  }, [lastMessage?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const lastMessage = messages[messages.length - 1];
-  const showOptions = lastMessage?.waitingForResponse && lastMessage?.options;
 
   return (
     <div className="flex flex-col h-full">
