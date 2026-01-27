@@ -222,6 +222,183 @@ export function answerQuestion(question: string, context: {
 }): string | null {
   const q = question.toLowerCase();
 
+  // EQUITY - deep explanations
+  if (q.includes('good equity') || q.includes('when is equity good') || q.includes('enough equity')) {
+    return `Good equity = you win often enough to profit. Rule of thumb:
+
+• 50%+ equity = strong, you want to get money in
+• 40-50% = okay if you have position or implied odds
+• 30-40% = need a good price (pot odds)
+• <30% = usually fold unless amazing odds
+
+Example: AKs vs a tight player's range (QQ+, AK) has ~40% equity. Sounds bad, but if they're folding half the time to your 3-bet, your TOTAL expectation (fold equity + showdown equity) is profitable.`;
+  }
+
+  if (q.includes('bad equity') || q.includes('not enough equity') || q.includes('equity too low')) {
+    return `Bad equity = you're losing more than you win. Example:
+
+K8o vs a TAG's opening range: you have ~35% equity. Sounds playable? But:
+• You're out of position
+• When you hit a K, they often have KQ, KJ, AK
+• When you hit an 8, any overcard beats you
+
+35% equity + bad position + dominated often = fold. You need ~40%+ AND good playability.`;
+  }
+
+  // FOLD EQUITY - deep explanations
+  if (q.includes('fold equity') || q.includes('what is fold') || q.includes('when do they fold')) {
+    return `Fold equity = the value you get when opponents fold. It's HUGE preflop.
+
+Example: You 3-bet with A5s. Your actual hand equity vs their range might be 45%. But if they fold 50% of the time, you profit even when called.
+
+When you have GOOD fold equity:
+• You're repping a strong range
+• Opponent is tight and folds a lot
+• Stack sizes allow them to fold (not pot committed)
+
+When you have BAD fold equity:
+• Fish/calling stations (they never fold)
+• You've been caught bluffing
+• Opponent is pot committed
+
+Against a nit: tons of fold equity. Against a fish: almost zero - just value bet.`;
+  }
+
+  if (q.includes('no fold equity') || q.includes('calling station') || q.includes('they never fold')) {
+    return `When villain never folds (calling station/fish):
+
+STOP BLUFFING. Seriously.
+
+Instead:
+• Value bet thinner - they'll call with worse
+• Bet bigger for value - they don't notice sizing
+• Check your medium hands - they'll bluff into you
+
+Example: You have top pair weak kicker vs a fish. Normally you might check. Against a fish? Bet. They're calling with any pair, any draw, sometimes ace-high.`;
+  }
+
+  // POSITION - deep explanations
+  if (q.includes('good position') || q.includes('why position') || q.includes('position matter')) {
+    return `Position = acting last. Why it's huge:
+
+1. INFORMATION: You see what they do first. They check? Maybe weak. They bet? Strong or bluffing - but you KNOW they did something.
+
+2. POT CONTROL: In position, you can check behind and see free cards. Out of position, you check and they might bet, forcing tough decisions.
+
+3. BLUFF EFFICIENCY: You can bet when they show weakness. Out of position, you're guessing.
+
+Example: You have JTs.
+• UTG (bad position): Fold or small open, pray
+• BTN (good position): Raise, and if called you control the hand post-flop`;
+  }
+
+  if (q.includes('out of position') || q.includes('oop') || q.includes('bad position')) {
+    return `Out of position (OOP) = acting first. It sucks because:
+
+Example: You have AQ in the BB, call a BTN raise.
+
+Flop: K72. What do you do?
+• Bet? You might be bluffing into a K
+• Check? They bet, now what? Call? Fold?
+
+If YOU were on the button:
+• They check, you bet and take it
+• They bet, you can raise or call knowing they're committed
+
+Same hand, but position makes AQ way more profitable on BTN vs BB.`;
+  }
+
+  // IMPLIED ODDS
+  if (q.includes('implied odds') || q.includes('implied')) {
+    return `Implied odds = money you'll win LATER if you hit.
+
+Example: You have 55 facing a raise. Direct pot odds say fold - you only hit a set 12% of the time.
+
+BUT if villain has a big stack and will pay you off when you hit:
+• You invest 3bb now
+• When you flop a set (1 in 8), you win 50bb+
+
+That future money makes the call profitable. This is why you "set mine" with small pairs - bad immediate odds, great implied odds.
+
+When implied odds are BAD:
+• Short stacks (nothing left to win)
+• Obvious draws (they won't pay when flush hits)
+• Tight players (they fold when you hit)`;
+  }
+
+  // PLAYABILITY
+  if (q.includes('playability') || q.includes('plays well') || q.includes('playable')) {
+    return `Playability = how well a hand navigates post-flop.
+
+HIGH playability:
+• Suited connectors (76s) - makes straights, flushes, pairs
+• Suited aces (A5s) - nut flush draws, wheel straights
+• Big pairs (QQ+) - usually ahead on most flops
+
+LOW playability:
+• Offsuit junk (K4o) - makes weak pairs, no draws
+• Dominating hands (AJ vs AK) - when you hit, you lose big
+
+Example: K9s vs K9o from the CO.
+• K9s: can make flushes, more confident with K-high flush draws
+• K9o: just makes pairs, often dominated
+
+Both are "playable" from CO, but K9s makes more money long-term.`;
+  }
+
+  // DOMINATED
+  if (q.includes('dominated') || q.includes('dominate')) {
+    return `Dominated = your hand shares a card with villain's better hand.
+
+Example: You have KJ, villain has KQ.
+• Flop comes K85
+• You both have a pair of kings
+• But their Q kicker beats your J
+• You're "dominated" - usually losing a big pot
+
+Most dangerous spots:
+• AJ vs AK (you have 25% equity!)
+• KT vs KQ
+• A9 vs AT
+
+This is why we fold hands like KTo, QJo from early position - they're often dominated when called.`;
+  }
+
+  // BLOCKERS
+  if (q.includes('blocker') || q.includes('block')) {
+    return `Blockers = cards that reduce villain's combos of certain hands.
+
+Example: You have A♠5♠ on K♠T♠3♦.
+• You block the nut flush (A♠ can't be in their hand)
+• Good for bluffing - they can't have the nuts
+• Bad for value - you want them to have the hand you block
+
+When to use blockers:
+• Bluffing: hold blockers to hands that would call
+• Value betting: DON'T hold blockers to hands you want them to have
+
+Example bluff: You have A♦K♦ on a missed board. You block AK, AA, KK - hands that would have you crushed. Good spot to bluff.`;
+  }
+
+  // POT ODDS
+  if (q.includes('pot odds') || q.includes('odds to call')) {
+    return `Pot odds = price you're getting to call.
+
+Formula: Call amount / (Pot + Call amount)
+
+Example: Pot is 10bb, villain bets 5bb. You need to call 5bb to win 15bb.
+• Pot odds: 5/(15+5) = 25%
+• You need 25% equity to break even on a call
+
+If you have a flush draw (35% to hit): CALL - you have more equity than you need.
+If you have a gutshot (8% to hit): FOLD - not enough equity.
+
+Quick guide:
+• Half pot bet = need 25% equity
+• Full pot bet = need 33% equity
+• 2x pot bet = need 40% equity`;
+  }
+
   // Questions about percentages
   if (q.includes('%') || q.includes('percent') || q.includes('23') || q.includes('15') || q.includes('20')) {
     return `The percentage = how many of the 169 possible starting hands you play. Example: 23% means you play roughly 1 in 4 hands. So AA, KK, QQ, JJ, AK, AQ, suited connectors like JTs, 98s... that adds up to about 23%. Tight is ~15%, wide is ~40%.`;
