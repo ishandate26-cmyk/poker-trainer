@@ -263,6 +263,10 @@ export default function PlayPage() {
     const expectedRange = OPENING_RANGES[game.heroPosition];
     const pct = Math.round((expectedRange.length / 169) * 100);
 
+    // Example hands for this position
+    const exampleHands = expectedRange.slice(0, 5).join(', ');
+    const borderlineHand = expectedRange[expectedRange.length - 3] || 'suited connectors';
+
     const isRight =
       (game.heroPosition === 'UTG' && response === 'Tight') ||
       (game.heroPosition === 'BTN' && response === 'Wide') ||
@@ -270,11 +274,11 @@ export default function PlayPage() {
       response === 'Depends';
 
     if (response === 'Depends') {
-      coachSays(`Fair. But baseline from ${game.heroPosition}? About ${pct}%. ${pct < 20 ? 'Tight.' : pct > 30 ? 'Wide.' : 'Medium.'}`);
+      coachSays(`Fair, but let's set a baseline. From ${game.heroPosition}, open about ${pct}% - hands like ${exampleHands}. ${borderlineHand} is borderline.`);
     } else if (isRight) {
-      coachSays(`${pick(COACH_VOICE.good)} ~${pct}% from ${game.heroPosition}.`);
+      coachSays(`${pick(COACH_VOICE.good)} ~${pct}% from ${game.heroPosition}. Example hands: ${exampleHands}.`);
     } else {
-      coachSays(`${pick(COACH_VOICE.notQuite)} ${game.heroPosition} should be ~${pct}%.`);
+      coachSays(`${pick(COACH_VOICE.notQuite)} From ${game.heroPosition} it's ~${pct}%. That's hands like ${exampleHands}. Borderline: ${borderlineHand}.`);
     }
 
     setTimeout(() => {
@@ -395,13 +399,13 @@ export default function PlayPage() {
     if (response === 'Why?' || response === 'Explain more') {
       const notation = game.heroHand ? cardsToHandNotation(game.heroHand) : 'the hand';
       if (game.correctAction === 'fold') {
-        coachSays(`${notation} from ${game.heroPosition} just doesn't have enough going for it. Bad equity, bad position, or both. Folding saves money long-term.`);
+        coachSays(`${notation} from ${game.heroPosition}: imagine playing this 100 times. You'll win some, but lose more. Example: K8o UTG - someone behind probably has KQ, KJ, AK. You're dominated. Folding saves those chips for better spots.`);
       } else if (game.correctAction === 'open') {
-        coachSays(`${notation} can make good hands - straights, flushes, pairs that hold up. From ${game.heroPosition}, that's enough to open.`);
+        coachSays(`${notation} from ${game.heroPosition}: this hand has "playability." Example: if you have A5s and flop a flush draw, you can win a big pot. Even if you miss, ace-high sometimes wins. Enough upside to raise.`);
       } else if (game.correctAction === '3bet') {
-        coachSays(`When you 3-bet, you win when they fold AND when they call with worse. ${notation} does both against their range.`);
+        coachSays(`${notation} crushes their opening range. Example: they open with KJo, you have AK. You're way ahead. 3-bet to get money in while you're winning. If they fold, you take the pot - also fine.`);
       } else {
-        coachSays(`Calling keeps you in the pot without bloating it. ${notation} wants to see a flop cheap and hit something.`);
+        coachSays(`${notation} is good enough to see a flop but not to 3-bet. Example: 88 vs a raise - you're flipping against overcards, crushed by bigger pairs. Call, try to hit a set (another 8), then win big.`);
       }
       setTimeout(() => {
         coachQuick("Make sense?", ['Yeah', 'Not really'], true);
@@ -410,9 +414,9 @@ export default function PlayPage() {
     }
 
     if (response === 'Not really') {
-      coachSays(`${pick(COACH_VOICE.simpler)} Every decision is: "Am I making money long-term?" If yes, do it. If no, don't. That's it.`);
+      coachSays(`Okay, even simpler. Example: you have 72o (worst hand). Would you put money in? No - you'll lose. You have AA (best hand). Put money in? Yes - you'll win. Every hand is somewhere between. We're learning which ones are closer to AA (play) vs 72 (fold).`);
       setTimeout(() => {
-        coachQuick("Keep playing. It'll click.", ['Deal'], true);
+        coachQuick("Keep playing, you'll get the feel.", ['Deal'], true);
         setGame(prev => ({ ...prev, phase: 'lesson' }));
       }, 1000);
       return;

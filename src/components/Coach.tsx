@@ -213,7 +213,7 @@ export function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// Answer common questions with human-like responses
+// Answer common questions with human-like responses - ALWAYS with examples
 export function answerQuestion(question: string, context: {
   hand?: string;
   position?: string;
@@ -222,77 +222,91 @@ export function answerQuestion(question: string, context: {
 }): string | null {
   const q = question.toLowerCase();
 
+  // Questions about percentages
+  if (q.includes('%') || q.includes('percent') || q.includes('23') || q.includes('15') || q.includes('20')) {
+    return `The percentage = how many of the 169 possible starting hands you play. Example: 23% means you play roughly 1 in 4 hands. So AA, KK, QQ, JJ, AK, AQ, suited connectors like JTs, 98s... that adds up to about 23%. Tight is ~15%, wide is ~40%.`;
+  }
+
+  // What is a range / what do you mean by range
+  if (q.includes('range') || q.includes('what hands')) {
+    return `A range = all the hands someone could have. Example: if I open from UTG, my range might be AA, KK, QQ, JJ, TT, AK, AQ. That's like 8% of hands. If I'm on the button, I add hands like K9s, Q8s, 65s - now it's 35%. The range chart shows which hands are "in" for each position.`;
+  }
+
+  // What is position
+  if (q.includes('position')) {
+    return `Position = where you sit relative to the dealer. Example: you have AJ. From UTG (first to act), it's borderline - fold or small open. From the Button (last to act), it's a clear raise. Why? On the button, you see everyone act first. Information = power.`;
+  }
+
+  // What is equity
+  if (q.includes('equity')) {
+    return `Equity = your chance to win. Example: you have AA vs KK. Your equity is ~82% - you win 82 times out of 100. Against a random hand, AA has 85% equity. Against a range of TT+, AK, it's more like 65%. The hand vs range trainer helps you estimate this.`;
+  }
+
   // "Why" questions
   if (q.includes('why')) {
     if (q.includes('fold')) {
-      return `${pick(COACH_VOICE.why)} ${context.hand || 'This hand'} doesn't have the equity to continue. You'd be lighting money on fire.`;
+      return `Example: you have K8o in UTG. Looks okay right? But there's 5-8 players behind you. Someone probably has AK, KQ, or a pocket pair that dominates you. Long term, K8o loses money from early position. Fold, wait for a better spot.`;
     }
     if (q.includes('raise') || q.includes('open')) {
-      return `${pick(COACH_VOICE.why)} ${context.hand || 'This hand'} has playability - it can make strong hands and it's got fold equity. From ${context.position || 'here'}, that's enough.`;
+      return `Example: you have A5s on the button. It can make the nut flush, nut straight, or win with ace-high. Plus if everyone folds, you take the blinds. Playability + fold equity = open it up.`;
     }
     if (q.includes('call')) {
-      return `${pick(COACH_VOICE.why)} It's got enough equity to see a flop, but not enough to raise for value. We're set-mining basically.`;
+      return `Example: you have 77 facing a raise. Not strong enough to 3-bet, but if you hit a set (7 on the flop), you can win a big pot. You're "set mining" - calling to see if you hit.`;
     }
     if (q.includes('3bet') || q.includes('3-bet')) {
-      return `${pick(COACH_VOICE.why)} Two reasons: we have equity if called, and we have fold equity. Plus we block some of their continuing range.`;
+      return `Example: you have AKs vs a CO open. If you just call, you let them see a cheap flop. 3-bet: they either fold (you win) or call with worse hands (KQ, JJ, AQ). Either way, you profit.`;
     }
   }
 
   // "What if" questions
   if (q.includes('what if')) {
-    if (q.includes('position') || q.includes('button') || q.includes('utg')) {
-      return `${pick(COACH_VOICE.simpler)} Better position = wider range. On the button you can open way more trash because you act last postflop. UTG? Tighten up.`;
+    if (q.includes('button') || q.includes('btn')) {
+      return `On the button you can play ~40% of hands. Example: K7s is a fold from UTG, but an open from BTN. Why? You act last on every street - you see what everyone does before you decide.`;
+    }
+    if (q.includes('utg')) {
+      return `UTG you play ~15% - only strong hands. Example: AJo is a fold from UTG but an open from CO. Too many players behind who could have you crushed.`;
     }
     if (q.includes('tight') || q.includes('nit')) {
-      return `Against a nit? Fold more when they show aggression. They're only betting with the goods. But steal their blinds all day.`;
+      return `Against a nit: when they raise, they have it. Example: nit 3-bets you? They have QQ+ or AK, period. Don't call with JJ hoping to outplay them. Just fold unless you have AA/KK.`;
     }
     if (q.includes('loose') || q.includes('fish') || q.includes('maniac')) {
-      return `Against a maniac? Tighten up preflop, then let them hang themselves. Value bet relentlessly. Don't bluff - they don't fold.`;
+      return `Against a fish/maniac: don't bluff, just value bet. Example: you have top pair, they keep calling? Bet again. And again. They'll pay you off with second pair or worse.`;
     }
   }
 
-  // Asking for simpler explanation
-  if (q.includes('simpler') || q.includes('eli5') || q.includes("don't understand") || q.includes('confused') || q.includes('explain')) {
+  // Asking for simpler explanation or doesn't understand
+  if (q.includes('simpler') || q.includes('eli5') || q.includes("don't understand") || q.includes('confused') || q.includes('explain') || q.includes('mean')) {
     if (context.action === 'fold') {
-      return `${pick(COACH_VOICE.simpler)} Bad hand + bad position = fold. Don't overthink it.`;
+      return `Simple: ${context.hand || 'this hand'} from ${context.position || 'here'} loses money over time. Example: playing 72o from any position - you'll win sometimes, but lose more than you win. Fold and wait.`;
     }
     if (context.action === 'open') {
-      return `${pick(COACH_VOICE.simpler)} Good enough hand + good enough position = raise it up. Take the pot or build one.`;
+      return `Simple: ${context.hand || 'this hand'} from ${context.position || 'here'} makes money over time. Example: ATs from CO - you can make flushes, straights, and even ace-high wins sometimes. Raise it.`;
     }
     if (context.action === '3bet') {
-      return `${pick(COACH_VOICE.simpler)} They raised, you re-raise. Either they fold (you win) or they call (you have a good hand). Win-win.`;
+      return `Simple: re-raise because you're ahead of their range. Example: they open KQo, you have AK. You're crushing them. Make them pay.`;
     }
-    return `${pick(COACH_VOICE.simpler)} Think: can I win this pot? If yes, play. If no, fold. Don't get fancy.`;
+    return `Okay, simpler: I'm asking what hands you'd play from this seat. Example: from UTG, only play premium stuff - AA, KK, AK. From the button, play way more - any pair, suited aces, connected cards.`;
   }
 
-  // Range questions
-  if (q.includes('range') || q.includes('what hands')) {
-    if (context.villainType === 'NIT') {
-      return `A nit? They're playing like top 10% of hands. AA, KK, QQ, AK... that's basically it.`;
-    }
-    if (context.villainType === 'FISH') {
-      return `A fish plays everything. Any ace, any pair, suited junk, you name it. Their range is huge.`;
-    }
-    if (context.villainType === 'LAG') {
-      return `LAGs open wide - could be anything. But when they 3-bet, give them some credit. They're aggro but not stupid.`;
-    }
-    return `Standard range from ${context.position || 'there'}? Pairs, broadway, suited connectors. Tighter early, wider late.`;
+  // What does "opening" mean
+  if (q.includes('open')) {
+    return `Opening = being the first to raise preflop. Example: everyone folds to you, you raise to 2.5bb with AQs - you just "opened." If someone raised before you, you're not opening, you're facing an open.`;
   }
 
-  // Equity questions
-  if (q.includes('equity') || q.includes('odds') || q.includes('percent')) {
-    return `Equity just means: if we got all-in right now, how often do we win? It's your share of the pot mathematically.`;
-  }
-
-  // Position questions
-  if (q.includes('position')) {
-    return `Position = information. When you act last, you see what everyone else does first. That's power. Use it.`;
+  // What is 3bet
+  if (q.includes('3bet') || q.includes('3-bet') || q.includes('three bet')) {
+    return `3-bet = re-raising someone's raise. Example: UTG raises to 3bb, you make it 9bb - that's a 3-bet. It says "I have a strong hand" (or you're bluffing). The original raise is the "2-bet" (blinds were the 1-bet).`;
   }
 
   // General "help" or confusion
   if (q.includes('help') || q.includes('stuck') || q.includes('idk') || q.includes("don't know")) {
-    return `${pick(COACH_VOICE.simpler)} What's your gut say? Trust it, then we'll talk about why.`;
+    return `No worries. Quick rule: from early position (UTG, HJ), play tight - pairs 77+, broadway like AQ+, AK. From late position (CO, BTN), add suited connectors, suited aces, smaller pairs. What's your gut on this hand?`;
   }
 
-  return null; // No matching pattern, let the main handler deal with it
+  // Catch-all for questions we don't understand
+  if (q.includes('?') || q.includes('what') || q.includes('how') || q.includes('mean')) {
+    return `Good question. Let me put it simply: we're practicing which hands to play from which position. The chart shows green = play, empty = fold. The % is how many total hands that is. Example: 20% means you play the best 1 in 5 hands. Make sense?`;
+  }
+
+  return null;
 }
