@@ -149,6 +149,43 @@ export const OPENING_RANGES: Record<Position, string[]> = {
   ],
 };
 
+// Calling ranges by position vs different openers (tighter than opening ranges)
+export const CALLING_RANGES: Record<Position, Record<Position, string[]>> = {
+  UTG: {
+    UTG: [], HJ: [], CO: [], BTN: [], SB: [], BB: [],
+  },
+  HJ: {
+    UTG: ['JJ', 'TT', '99', '88', '77', 'AQs', 'AJs', 'ATs', 'KQs', 'QJs', 'JTs'],
+    HJ: [], CO: [], BTN: [], SB: [], BB: [],
+  },
+  CO: {
+    UTG: ['JJ', 'TT', '99', '88', '77', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs', 'JTs', 'T9s'],
+    HJ: ['TT', '99', '88', '77', '66', 'AJs', 'ATs', 'A9s', 'KQs', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs', 'T9s', '98s'],
+    CO: [], BTN: [], SB: [], BB: [],
+  },
+  BTN: {
+    UTG: ['TT', '99', '88', '77', '66', 'AQs', 'AJs', 'ATs', 'A5s', 'KQs', 'KJs', 'QJs', 'JTs', 'T9s', '98s', 'AQo'],
+    HJ: ['99', '88', '77', '66', '55', 'AJs', 'ATs', 'A9s', 'A5s', 'A4s', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs', 'J9s', 'T9s', '98s', '87s', 'AJo'],
+    CO: ['88', '77', '66', '55', '44', 'ATs', 'A9s', 'A8s', 'A5s', 'A4s', 'A3s', 'KTs', 'K9s', 'QTs', 'Q9s', 'JTs', 'J9s', 'T9s', 'T8s', '98s', '97s', '87s', '76s', 'ATo', 'KJo'],
+    BTN: [], SB: [], BB: [],
+  },
+  SB: {
+    UTG: ['TT', '99', '88', 'AQs', 'AJs', 'KQs'],
+    HJ: ['99', '88', '77', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs'],
+    CO: ['88', '77', '66', 'ATs', 'A9s', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs'],
+    BTN: ['77', '66', '55', 'A9s', 'A8s', 'KTs', 'K9s', 'QTs', 'Q9s', 'JTs', 'J9s', 'T9s', '98s'],
+    SB: [], BB: [],
+  },
+  BB: {
+    UTG: ['TT', '99', '88', '77', '66', 'AQs', 'AJs', 'ATs', 'A9s', 'KQs', 'KJs', 'QJs', 'JTs', 'T9s', '98s', 'AQo', 'AJo'],
+    HJ: ['99', '88', '77', '66', '55', 'AJs', 'ATs', 'A9s', 'A8s', 'KJs', 'KTs', 'K9s', 'QJs', 'QTs', 'JTs', 'J9s', 'T9s', '98s', '87s', 'AJo', 'ATo', 'KQo'],
+    CO: ['88', '77', '66', '55', '44', 'ATs', 'A9s', 'A8s', 'A7s', 'A5s', 'KTs', 'K9s', 'K8s', 'QTs', 'Q9s', 'JTs', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '76s', '65s', 'ATo', 'A9o', 'KJo', 'KTo', 'QJo'],
+    BTN: ['77', '66', '55', '44', '33', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'K9s', 'K8s', 'K7s', 'Q9s', 'Q8s', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '64s', '54s', 'A9o', 'A8o', 'A7o', 'KTo', 'K9o', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o'],
+    SB: ['77', '66', '55', '44', '33', '22', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s', 'K8s', 'K7s', 'K6s', 'K5s', 'Q8s', 'Q7s', 'J8s', 'J7s', 'T8s', 'T7s', '97s', '96s', '86s', '85s', '75s', '74s', '64s', '53s', 'A8o', 'A7o', 'A6o', 'A5o', 'K9o', 'K8o', 'Q9o', 'Q8o', 'J9o', 'J8o', 'T8o', '97o', '87o'],
+    BB: [],
+  },
+};
+
 // 3-bet ranges by position vs different openers
 export const THREE_BET_RANGES: Record<Position, Record<Position, string[]>> = {
   UTG: {
@@ -200,9 +237,8 @@ export function getCorrectAction(hand: string, position: Position, facing: 'open
     return '3bet';
   }
 
-  // Check if in calling range (simplified - hands in opening range but not 3bet range)
-  // This is simplified; real GTO has specific calling ranges
-  if (OPENING_RANGES[position].includes(hand)) {
+  // Check if in calling range
+  if (raiserPosition && CALLING_RANGES[position]?.[raiserPosition]?.includes(hand)) {
     return 'call';
   }
 

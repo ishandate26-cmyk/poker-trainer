@@ -56,10 +56,10 @@ export function RangeGrid({
     const isHighlighted = highlightSet.has(hand);
     const isHero = hand === heroHand;
 
-    if (isHero) return 'bg-yellow-500 text-black font-bold';
+    if (isHero) return 'bg-pink-500 text-black font-bold ring-2 ring-white';
     if (isHighlighted && isSelected) return 'bg-green-600 text-white';
     if (isHighlighted) return 'bg-blue-600 text-white';
-    if (isSelected) return 'bg-emerald-600 text-white';
+    if (isSelected) return 'bg-yellow-600 text-black';
 
     // Default colors based on hand type
     if (hand.length === 2) return 'bg-gray-700 hover:bg-gray-600'; // Pair
