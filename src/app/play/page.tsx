@@ -192,6 +192,11 @@ export default function PlayPage() {
       return;
     }
 
+    if (response === 'Show cards') {
+      transitionToAction();
+      return;
+    }
+
     // Phase-specific handling
     switch (game.phase) {
       case 'preflop_think':
@@ -287,11 +292,6 @@ export default function PlayPage() {
   };
 
   const handlePreflopAction = (response: string) => {
-    if (response === 'Show cards') {
-      transitionToAction();
-      return;
-    }
-
     if (!game.heroHand) return;
 
     const notation = cardsToHandNotation(game.heroHand);
