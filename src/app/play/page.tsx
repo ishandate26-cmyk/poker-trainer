@@ -120,9 +120,10 @@ function analyzeHandStrength(heroCards: [Card, Card], board: Card[]): {
     }
   }
 
+  // Hand rankings: 0=high card, 1=pair, 2=two pair, 3=trips, 4=straight, 5=flush, 6=full house, 7=quads, 8=straight flush
   let strength: 'strong' | 'medium' | 'weak' | 'draw' = 'weak';
-  if (evaluation.rank >= 3) strength = 'strong'; // trips or better
-  else if (evaluation.rank >= 1) strength = 'medium'; // pair or two pair
+  if (evaluation.rank >= 2) strength = 'strong'; // two pair or better is strong
+  else if (evaluation.rank === 1) strength = 'medium'; // one pair
   else if (draws.length > 0) strength = 'draw';
 
   return {
@@ -144,62 +145,58 @@ function getCoachingAdvice(
   const inPosition = villains.length === 0 || POSITIONS.indexOf(hero.position) > Math.max(...villains.map(v => POSITIONS.indexOf(v.position)));
   const mainVillain = villains[0];
 
-  // Build conversational advice with questions
   const parts: string[] = [];
 
-  // Start with a thinking prompt based on situation
+  // Always state what you have first
+  if (hand.board.length > 0) {
+    parts.push(`You have **${handAnalysis.made}** with ${notation}.`);
+  }
+
+  // Facing a bet
   if (toCall > 0) {
     const potOdds = (toCall / (hand.pot + toCall) * 100);
-    parts.push(`${toCall.toFixed(1)}bb to call into ${hand.pot.toFixed(1)}bb. That's ${potOdds.toFixed(0)}% pot odds.`);
+    parts.push(`${toCall.toFixed(1)}bb to call into ${hand.pot.toFixed(1)}bb (${potOdds.toFixed(0)}% pot odds).`);
 
-    // Add villain context as a question
-    if (mainVillain) {
-      if (mainVillain.playerType === 'LAG' || mainVillain.playerType === 'MANIAC') {
-        parts.push(`${mainVillain.name} is aggressive - could easily be bluffing here. How often does ${notation} win against a wide range?`);
-      } else if (mainVillain.playerType === 'NIT' || mainVillain.playerType === 'TAG') {
-        parts.push(`${mainVillain.name} is tight though. When they bet, they usually mean it. What hands beat you that they'd play this way?`);
-      } else if (mainVillain.playerType === 'FISH' || mainVillain.playerType === 'CALLING_STATION') {
-        parts.push(`${mainVillain.name} plays too many hands. You might actually be ahead here more than you think.`);
-      }
-    }
-
-    // Strength-based thinking
     if (handAnalysis.strength === 'strong') {
-      parts.push(`You're strong here. Question is: call and trap, or raise and build a pot?`);
-    } else if (handAnalysis.strength === 'draw') {
-      parts.push(`Drawing hand. Do the math - you need ${(toCall / (hand.pot + toCall) * 100).toFixed(0)}% equity. Does your draw have it?`);
+      parts.push(`**Strong hand!** You're ahead most of the time. Raise for value, or call to trap if villain is aggressive.`);
     } else if (handAnalysis.strength === 'medium') {
-      parts.push(`Medium strength. Tough spot. Think about what worse hands they bet that you beat.`);
+      if (mainVillain?.playerType === 'LAG' || mainVillain?.playerType === 'MANIAC') {
+        parts.push(`Medium hand, but ${mainVillain.name} bluffs a lot. Calling is fine here.`);
+      } else if (mainVillain?.playerType === 'NIT' || mainVillain?.playerType === 'TAG') {
+        parts.push(`Medium hand vs a tight player. They usually have it when they bet. Consider folding.`);
+      } else {
+        parts.push(`Medium hand. Standard call if pot odds are good.`);
+      }
+    } else if (handAnalysis.strength === 'draw') {
+      const neededEquity = potOdds;
+      const hasFlushDraw = handAnalysis.draws.includes('flush draw');
+      const drawEquity = hasFlushDraw ? 35 : 17;
+      parts.push(`Drawing hand (~${drawEquity}% equity). ${drawEquity > neededEquity ? 'Odds are good - call.' : 'Odds are thin. Need implied odds to call.'}`);
     } else {
-      parts.push(`Weak holding. Unless you're sure they're bluffing, this is probably a fold.`);
+      parts.push(`Weak hand. Fold unless you have a strong read they're bluffing.`);
     }
   } else {
     // Checked to us
-    if (hand.board.length > 0) {
-      parts.push(`Checked to you.`);
+    parts.push(`Checked to you. Pot: ${hand.pot.toFixed(1)}bb.`);
 
-      if (handAnalysis.strength === 'strong') {
-        parts.push(`Strong hand - this is a bet. What sizing gets called by worse?`);
-      } else if (handAnalysis.strength === 'medium') {
-        parts.push(`Medium hand. You could bet thin for value, or check for pot control. What's villain likely to do if you bet?`);
-      } else if (handAnalysis.strength === 'draw') {
-        parts.push(`Draw. Could semi-bluff here and put them in a tough spot. Or check and see a free card.`);
-      } else {
-        parts.push(`Weak hand. Bet as a bluff if villain folds a lot. Otherwise take the free card.`);
+    if (handAnalysis.strength === 'strong') {
+      const betSize = (hand.pot * 0.66).toFixed(1);
+      parts.push(`**Strong hand - BET FOR VALUE!** I'd bet around ${betSize}bb (66% pot). You want worse hands to call.`);
+    } else if (handAnalysis.strength === 'medium') {
+      parts.push(`Medium hand. Can bet small (${(hand.pot * 0.33).toFixed(1)}bb) for thin value, or check to control the pot.`);
+      if (mainVillain?.playerType === 'CALLING_STATION' || mainVillain?.playerType === 'FISH') {
+        parts.push(`Against ${mainVillain.name} who calls too much - bet for value.`);
       }
+    } else if (handAnalysis.strength === 'draw') {
+      parts.push(`Draw. Could semi-bluff (${(hand.pot * 0.5).toFixed(1)}bb) or check for a free card.`);
     } else {
-      // Preflop
-      parts.push(`Action's on you.`);
+      parts.push(`Weak hand. Check and give up, or bluff if villain folds a lot.`);
     }
   }
 
-  // Add position context naturally
+  // Position context
   if (hand.street !== 'preflop') {
-    if (inPosition) {
-      parts.push(`You have position - use it.`);
-    } else {
-      parts.push(`Out of position here, so be careful.`);
-    }
+    parts.push(inPosition ? `You have position.` : `Out of position - be careful.`);
   }
 
   return parts.join('\n\n');
@@ -1102,16 +1099,44 @@ export default function PlayPage() {
       return `**Poker Basics:**\n\n• Each player gets 2 cards (hole cards)\n• 5 community cards: Flop (3), Turn (1), River (1)\n• Best 5-card hand wins\n• Betting rounds: Preflop, Flop, Turn, River\n\nWhat specific rule are you asking about?`;
     }
 
-    // === ODDS/EQUITY ===
-    if (hasAny('odds', 'equity', 'percent', '%', 'ev', 'expected value', 'profitable', 'math')) {
+    // === ODDS/EQUITY/BET SIZING ===
+    if (hasAny('odds', 'equity', 'percent', '%', 'ev', 'expected value', 'profitable', 'math', 'sizing', 'bet size', 'how much')) {
       lastTopicRef.current = 'odds';
 
+      // When no bet to call - talk about BET SIZING, not pot odds
       if (toCall === 0) {
-        return `No bet to call. You're in a good spot - can bet for value or check for free card.\n\nWith ${notation} (${handAnalysis.strength}): ${handAnalysis.strength === 'strong' ? 'Bet for value.' : handAnalysis.strength === 'medium' ? 'Can bet small or check.' : 'Check or bluff.'}`;
+        let response = `**Bet Sizing (when betting, not calling):**\n\n`;
+        response += `You have ${notation} = **${handAnalysis.made}** (${handAnalysis.strength})\n\n`;
+
+        if (handAnalysis.strength === 'strong') {
+          response += `**Strong hand - bet for VALUE.**\n\n`;
+          response += `• Small bet (33-50% pot): Get called by more hands\n`;
+          response += `• Medium bet (50-75% pot): Balance of value and protection\n`;
+          response += `• Big bet (75-100%+ pot): Max value vs calling stations, protection vs draws\n\n`;
+          response += `**Pot is ${hand.pot.toFixed(1)}bb.** With ${handAnalysis.made}, I'd bet ${(hand.pot * 0.6).toFixed(1)}-${(hand.pot * 0.75).toFixed(1)}bb for value.`;
+        } else if (handAnalysis.strength === 'medium') {
+          response += `**Medium hand - pot control or thin value.**\n\n`;
+          response += `• Check: Keep pot small, get to showdown cheaply\n`;
+          response += `• Small bet (25-40% pot): Thin value vs worse, fold out draws\n\n`;
+          response += `Against a calling station: bet small for value.\nAgainst aggressive player: check, let them bluff.`;
+        } else if (handAnalysis.strength === 'draw') {
+          response += `**Drawing hand - semi-bluff or check.**\n\n`;
+          response += `• Semi-bluff (50-75% pot): Win now OR hit your draw\n`;
+          response += `• Check: See free card, disguise hand strength\n\n`;
+          response += `Semi-bluff works better vs tight players who fold. Check vs calling stations.`;
+        } else {
+          response += `**Weak hand - check or bluff.**\n\n`;
+          response += `• Check: Give up, see free card\n`;
+          response += `• Bluff (50-75% pot): Only if villain folds a lot\n\n`;
+          response += `Don't bluff calling stations. They call.`;
+        }
+
+        return response;
       }
 
+      // Facing a bet - show pot odds
       const potOdds = (toCall / (hand.pot + toCall) * 100);
-      return `**Pot Odds:**\n\n${toCall.toFixed(1)}bb to call / ${(hand.pot + toCall).toFixed(1)}bb total = **${potOdds.toFixed(0)}%**\n\nYou need ${potOdds.toFixed(0)}%+ equity.\n\n**Common hands vs ranges:**\n• vs tight (AA-TT, AK): ~30%\n• vs loose (any pair/draw): ~45%\n\n**Your ${notation}:** ${handAnalysis.strength === 'strong' ? 'Ahead of most ranges.' : handAnalysis.strength === 'draw' ? `Draw equity ~${handAnalysis.draws.includes('flush draw') ? '35%' : '17-32%'}` : 'Marginal.'}`;
+      return `**Pot Odds:**\n\n${toCall.toFixed(1)}bb to call / ${(hand.pot + toCall).toFixed(1)}bb total = **${potOdds.toFixed(0)}%**\n\nYou need ${potOdds.toFixed(0)}%+ equity to call profitably.\n\n**Your ${notation} = ${handAnalysis.made}:**\n${handAnalysis.strength === 'strong' ? '✓ Strong - you\'re ahead of most betting ranges. Raise for value or call to trap.' : handAnalysis.strength === 'medium' ? '? Medium - depends on villain. Call vs bluffers, fold vs tight players.' : handAnalysis.strength === 'draw' ? `? Draw - need ~${handAnalysis.draws.includes('flush draw') ? '35%' : '17-32%'} equity. ${potOdds < 35 ? 'Odds look OK.' : 'Odds are thin.'}` : '✗ Weak - probably fold unless you\'re sure they\'re bluffing.'}`;
     }
 
     // === RANGE QUESTIONS ===
