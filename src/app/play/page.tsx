@@ -805,6 +805,40 @@ export default function PlayPage() {
       return `That's the right question to ask.\n\nIn poker, everything comes back to: what range does villain have, and how does my hand do against it?\n\nA tight player betting big = strong range = you need a strong hand.\nA loose player betting = wide range = you can call lighter.\n\nWhat specifically are you trying to figure out?`;
     }
 
+    // Betting vs checking questions
+    if ((q.includes('bet') && q.includes('check')) || q.includes('betting vs') || q.includes('bet or check')) {
+      const handAnalysis = analyzeHandStrength(hero.cards, board);
+      const mainVillain = villains[0];
+
+      let response = `Good question. Here's the framework:\n\n`;
+      response += `**Bet when:**\n`;
+      response += `• You have a hand that worse hands will call (value)\n`;
+      response += `• You have a hand that better hands will fold (bluff)\n`;
+      response += `• You want to deny equity to draws\n\n`;
+      response += `**Check when:**\n`;
+      response += `• You have showdown value but can't handle a raise\n`;
+      response += `• You want to trap with a monster\n`;
+      response += `• Villain is aggressive and will bet for you\n\n`;
+
+      if (handAnalysis.strength === 'medium') {
+        response += `Your hand is medium strength. Ask yourself: if I bet, what calls that I beat? If the answer is "not much", checking is fine.`;
+      } else if (handAnalysis.strength === 'strong') {
+        response += `You're strong here. Usually betting. The question is sizing - what gets the most value?`;
+      } else if (handAnalysis.strength === 'weak') {
+        response += `Weak hand. Either bet as a bluff (if villain folds a lot) or check and give up.`;
+      }
+
+      if (mainVillain) {
+        if (mainVillain.playerType === 'CALLING_STATION' || mainVillain.playerType === 'FISH') {
+          response += `\n\nAgainst ${mainVillain.name} (calling station) - bet for value more often. They call with anything.`;
+        } else if (mainVillain.playerType === 'LAG' || mainVillain.playerType === 'MANIAC') {
+          response += `\n\nAgainst ${mainVillain.name} (aggressive) - checking to induce bluffs can work. They'll often bet when you check.`;
+        }
+      }
+
+      return response;
+    }
+
     // WHY questions - make them think
     if (q.includes('why')) {
       if (q.includes('fold')) {
@@ -819,16 +853,18 @@ export default function PlayPage() {
       return `Good instinct to ask why.\n\nEvery action should have a reason. "I felt like it" isn't a reason. What specifically confused you?`;
     }
 
-    // Villain analysis
-    if (q.includes('villain') || q.includes('opponent') || q.includes('player') || q.includes('their') || q.includes('sharky') || q.includes('who')) {
-      if (villains.length === 0) {
+    // Villain analysis - check for player names or general villain questions
+    const allPlayers = hand.players.filter(p => !p.isHero);
+    const mentionedPlayer = allPlayers.find(p => q.includes(p.name.toLowerCase().split('_')[0]) || q.includes(p.name.toLowerCase()));
+    const isVillainQuestion = q.includes('villain') || q.includes('opponent') || q.includes('player') || q.includes('their') || q.includes('who') || q.includes('think') || mentionedPlayer;
+
+    if (isVillainQuestion && (mentionedPlayer || villains.length > 0)) {
+      const v = mentionedPlayer || villains[0];
+      if (!v) {
         return "Everyone folded. You won this one before showdown.";
       }
 
-      const v = villains[0];
       const profile = PLAYER_PROFILES[v.playerType];
-      const vpip = ((profile.vpip.min + profile.vpip.max) / 2);
-      const agg = ((profile.aggression.min + profile.aggression.max) / 2);
 
       let response = `${v.name} is a ${profile.name.toLowerCase()}.\n\n`;
 
@@ -840,6 +876,11 @@ export default function PlayPage() {
         response += `These players call too much. Way too much. They want to see showdowns.\n\nYour adjustment: Never bluff. Value bet thinner - even middle pair for value sometimes. They'll call with worse.\n\nDon't get frustrated when they suck out. Just keep value betting.`;
       } else {
         response += `Standard player - plays reasonable ranges.\n\nYour adjustment: Respect their bets somewhat, but look for spots where they're weak. Don't do anything too fancy.`;
+      }
+
+      // Add board context if postflop
+      if (board.length > 0) {
+        response += `\n\nOn this board (${board.map(c => c.rank + c.suit).join(' ')}), think about what hands ${v.name} would play this way.`;
       }
 
       return response;
