@@ -784,6 +784,163 @@ export default function PlayPage() {
     }, 800);
   }, []);
 
+  // ============ ANSWER QUESTION ============
+  const answerQuestion = useCallback((question: string, hand: HandState): string => {
+    const q = question.toLowerCase();
+    const hero = hand.players.find(p => p.isHero)!;
+    const notation = cardsToHandNotation(hero.cards);
+    const villains = hand.players.filter(p => !p.isFolded && !p.isHero);
+    const board = hand.board;
+
+    // Villain analysis questions
+    if (q.includes('villain') || q.includes('opponent') || q.includes('player') || q.includes('their')) {
+      if (villains.length === 0) {
+        return "Everyone folded - you're heads up against the blinds or won already.";
+      }
+
+      let analysis = '';
+      villains.forEach(v => {
+        const profile = PLAYER_PROFILES[v.playerType];
+        const vpip = ((profile.vpip.min + profile.vpip.max) / 2);
+        const pfr = ((profile.pfr.min + profile.pfr.max) / 2);
+        const agg = ((profile.aggression.min + profile.aggression.max) / 2);
+
+        analysis += `**${v.name}** (${v.position}) - ${profile.name}:\n`;
+        analysis += `• VPIP: ~${vpip}% (plays ${vpip > 30 ? 'many' : vpip > 20 ? 'moderate' : 'few'} hands)\n`;
+        analysis += `• PFR: ~${pfr}% (${pfr > 20 ? 'aggressive raiser' : pfr > 10 ? 'selective raiser' : 'passive, rarely raises'})\n`;
+        analysis += `• Aggression: ${agg > 3 ? 'Very aggressive - bets and raises a lot' : agg > 2 ? 'Moderately aggressive' : 'Passive - tends to call more than bet'}\n`;
+
+        // Specific tendencies
+        if (v.playerType === 'NIT') {
+          analysis += `• KEY: When ${v.name} bets big, they almost always have it. Easy to fold against.\n`;
+        } else if (v.playerType === 'LAG') {
+          analysis += `• KEY: ${v.name} puts pressure with wide range. Can call lighter against them.\n`;
+        } else if (v.playerType === 'TAG') {
+          analysis += `• KEY: ${v.name} is solid. Respect their bets but look for spots when they're weak.\n`;
+        } else if (v.playerType === 'FISH' || v.playerType === 'CALLING_STATION') {
+          analysis += `• KEY: ${v.name} calls too much. Value bet relentlessly, never bluff.\n`;
+        } else if (v.playerType === 'MANIAC') {
+          analysis += `• KEY: ${v.name} is wildly aggressive. Let them bluff into your strong hands.\n`;
+        } else if (v.playerType === 'REG') {
+          analysis += `• KEY: ${v.name} is a solid reg. Plays ABC poker, exploit by mixing up your lines.\n`;
+        }
+
+        // Board-specific reads
+        if (board.length > 0) {
+          const texture = analyzeBoardTexture(board);
+          if (texture.includes('flush') && v.playerType === 'FISH') {
+            analysis += `• On this flushy board, fish often chase draws - punish with value.\n`;
+          } else if (texture.includes('paired') && (v.playerType === 'NIT' || v.playerType === 'TAG')) {
+            analysis += `• On paired board, tight players often have full houses when betting big.\n`;
+          }
+        }
+
+        analysis += '\n';
+      });
+
+      return analysis.trim();
+    }
+
+    // Why questions
+    if (q.includes('why')) {
+      if (q.includes('fold')) {
+        return `Folding makes sense when: (1) you're dominated by the raiser's range, (2) you don't have position, (3) the math doesn't work - you need ~30% equity to call, and ${notation} might not have it vs a tight range. Ask yourself: what hands are you beating that would bet?`;
+      }
+      if (q.includes('raise') || q.includes('bet')) {
+        return `Raising/betting is good when: (1) you have a strong hand and want value, (2) you want to make better hands fold (bluff), (3) you want to deny equity to draws, (4) you want to build the pot in position. With ${notation}, which of these applies?`;
+      }
+      if (q.includes('call')) {
+        return `Calling works when: (1) you have pot odds for your draw, (2) you have implied odds (can win big if you hit), (3) you're trapping a bluffer. Pure calling is often the weakest line - you either have the best hand (raise) or you don't (fold). What made you want to just call?`;
+      }
+      return `Good question. Think about: What are you trying to accomplish? Every action should have a reason - value, bluff, protection, or information.`;
+    }
+
+    // Position questions
+    if (q.includes('position')) {
+      const inPosition = villains.length === 0 || POSITIONS.indexOf(hero.position) > Math.max(...villains.map(v => POSITIONS.indexOf(v.position)));
+      if (inPosition) {
+        return `You're in position - you act last postflop. This is huge:\n• You see what they do first\n• You control the pot size\n• You can bluff more effectively\n• You get free cards when you want them\n\nIn position, you can play more hands profitably because you have information advantage.`;
+      }
+      return `You're out of position - they act after you postflop. This sucks:\n• They see your action first\n• Harder to bluff (they can call in position)\n• Harder to value bet thin (they can raise)\n\nOut of position, play tighter ranges and be more aggressive when you do enter.`;
+    }
+
+    // Equity/odds questions
+    if (q.includes('odds') || q.includes('equity') || q.includes('math')) {
+      const toCall = hand.currentBet - hero.currentBet;
+      if (toCall > 0) {
+        const potOdds = (toCall / (hand.pot + toCall) * 100);
+        return `Pot is ${hand.pot.toFixed(1)}bb, you need ${toCall.toFixed(1)}bb to call.\n\nPot odds: ${potOdds.toFixed(0)}% (you need ${potOdds.toFixed(0)}% equity to break even).\n\nCommon draws:\n• Flush draw: ~35% (9 outs × 4 on flop)\n• Open-ended straight: ~32% (8 outs × 4)\n• Gutshot: ~17% (4 outs × 4)\n\nYour ${notation}: think about how often you're ahead vs their range.`;
+      }
+      return `No bet to call. When betting, think about value vs bluff ratio. Good bets should make worse hands call (value) or better hands fold (bluff).`;
+    }
+
+    // Range questions
+    if (q.includes('range')) {
+      if (villains.length > 0) {
+        const v = villains[0];
+        const profile = PLAYER_PROFILES[v.playerType];
+        const vpip = ((profile.vpip.min + profile.vpip.max) / 2);
+        return `${v.name}'s range depends on their type (${profile.name}):\n\nThey play ~${vpip}% of hands. ${v.playerType === 'NIT' ? 'Very tight - think AA-TT, AK-AQ only.' : v.playerType === 'LAG' ? 'Wide - could have any two cards that connect.' : v.playerType === 'FISH' ? 'Too wide - any face card, any suited, any connector.' : 'Reasonable - standard opening/calling ranges.'}\n\nClick "Show Range" to see your range. Think about how your hand does vs their range.`;
+      }
+      return `Click "Show Range" to see your position's range. Green = 3-bet, Yellow = call. Your hand is highlighted.`;
+    }
+
+    // Board texture questions
+    if (q.includes('board') || q.includes('texture') || q.includes('flop') || q.includes('turn') || q.includes('river')) {
+      if (board.length === 0) {
+        return "No board yet - we're still preflop. The board texture will matter a lot for postflop play.";
+      }
+      const texture = analyzeBoardTexture(board);
+      const boardStr = board.map(c => c.rank + c.suit).join(' ');
+
+      let analysis = `Board: ${boardStr}\nTexture: ${texture}\n\n`;
+
+      if (texture.includes('flush')) {
+        analysis += `• Flush possible - if you don't have it, be careful against aggressive bets\n`;
+      }
+      if (texture.includes('paired')) {
+        analysis += `• Paired board - full houses and quads possible. Overpairs less valuable.\n`;
+      }
+      if (texture.includes('connected')) {
+        analysis += `• Connected board - many straights possible. Sets more vulnerable.\n`;
+      }
+      if (texture.includes('high')) {
+        analysis += `• High board - favors the preflop raiser's range (has more big cards)\n`;
+      }
+      if (texture.includes('low')) {
+        analysis += `• Low board - favors the caller's range (has more suited connectors)\n`;
+      }
+
+      return analysis;
+    }
+
+    // Hand strength questions
+    if (q.includes('hand') || q.includes('strong') || q.includes('weak') || q.includes('good') || q.includes('bad')) {
+      const handAnalysis = analyzeHandStrength(hero.cards, board);
+      let response = `Your ${notation} is ${handAnalysis.made}`;
+      if (handAnalysis.draws.length > 0) {
+        response += ` with ${handAnalysis.draws.join(' and ')}`;
+      }
+      response += `.\n\nStrength: ${handAnalysis.strength.toUpperCase()}\n\n`;
+
+      if (handAnalysis.strength === 'strong') {
+        response += "This is a value hand - look to build the pot and get paid.";
+      } else if (handAnalysis.strength === 'medium') {
+        response += "Medium strength - tricky to play. Consider pot control and showdown value.";
+      } else if (handAnalysis.strength === 'draw') {
+        response += "Drawing hand - check your odds. Can semi-bluff or take free cards.";
+      } else {
+        response += "Weak hand - usually best to check/fold unless you can bluff effectively.";
+      }
+
+      return response;
+    }
+
+    // Default - provide contextual advice
+    const handAnalysis = analyzeHandStrength(hero.cards, board);
+    return getCoachingAdvice(hand, hero, handAnalysis, hand.currentBet - hero.currentBet);
+  }, [coachSays]);
+
   // ============ RESPONSE HANDLER ============
   const handleResponse = useCallback((response: string, isCustom = false) => {
     if (response === 'Deal me in' || response === 'Deal next hand') {
@@ -804,15 +961,13 @@ export default function PlayPage() {
       return;
     }
 
-    // Custom questions
+    // Custom questions - use answerQuestion
     if (isCustom && game.hand) {
-      const hero = game.hand.players.find(p => p.isHero)!;
-      const handAnalysis = analyzeHandStrength(hero.cards, game.hand.board);
-      const toCall = game.hand.currentBet - hero.currentBet;
-      const advice = getCoachingAdvice(game.hand, hero, handAnalysis, toCall);
-      coachSays(advice);
+      addMessage('user', response);
+      const answer = answerQuestion(response, game.hand);
+      coachSays(answer);
     }
-  }, [game, waitingForAction, startNewHand, handleHeroAction, coachSays]);
+  }, [game, waitingForAction, startNewHand, handleHeroAction, coachSays, answerQuestion, addMessage]);
 
   // ============ RENDER ============
   const hand = game.hand;
