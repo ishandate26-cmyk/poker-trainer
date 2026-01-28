@@ -442,41 +442,14 @@ export default function PlayPage() {
     const heroIdx = hand.players.findIndex(p => p.isHero);
     const hero = hand.players[heroIdx];
     const toCall = hand.currentBet - hero.currentBet;
-    const notation = cardsToHandNotation(hero.cards);
     const handAnalysis = analyzeHandStrength(hero.cards, hand.board);
 
     // Get coaching advice
     const advice = getCoachingAdvice(hand, hero, handAnalysis, toCall);
 
-    let options: string[] = [];
-    let situation = '';
-
-    if (hand.street === 'preflop') {
-      situation = toCall > 0
-        ? `${toCall.toFixed(1)}bb to call into ${hand.pot.toFixed(1)}bb pot.`
-        : `Pot: ${hand.pot.toFixed(1)}bb. Action on you.`;
-
-      if (toCall === 0) {
-        options = ['Check', 'Raise 2.5bb', 'Raise 3bb', 'Raise 4bb', 'Show Range'];
-      } else {
-        const raise3x = Math.round(hand.currentBet * 3 * 10) / 10;
-        options = ['Fold', `Call ${toCall.toFixed(1)}bb`, `Raise ${raise3x}bb`, 'Show Range'];
-      }
-    } else {
-      const boardStr = hand.board.map(c => c.rank + c.suit).join(' ');
-      situation = `${hand.street.toUpperCase()}: ${boardStr}\nPot: ${hand.pot.toFixed(1)}bb${toCall > 0 ? `. ${toCall.toFixed(1)}bb to call.` : ''}`;
-
-      if (toCall === 0) {
-        const halfPot = Math.round(hand.pot * 0.5 * 10) / 10;
-        const fullPot = Math.round(hand.pot * 10) / 10;
-        options = ['Check', `Bet ${halfPot}bb (1/2)`, `Bet ${fullPot}bb (pot)`, 'Show Range'];
-      } else {
-        const raiseSize = Math.round(hand.currentBet * 2.5 * 10) / 10;
-        options = ['Fold', `Call ${toCall.toFixed(1)}bb`, `Raise ${raiseSize}bb`, 'Show Range'];
-      }
-    }
-
-    coachSays(`${situation}\n\n${advice}`, options, true);
+    // Just show coaching - action buttons are in the left panel now
+    coachSays(advice);
+    setWaitingForAction(true);
   }, [coachSays]);
 
   // ============ HANDLE HERO ACTION ============
@@ -749,6 +722,11 @@ export default function PlayPage() {
     const hero = hand.players.find(p => p.isHero)!;
     const notation = cardsToHandNotation(hero.cards);
 
+    // Mark hand as complete
+    const completedHand = { ...hand, street: 'complete' as Street };
+    setGame(prev => ({ ...prev, hand: completedHand }));
+    setWaitingForAction(false);
+
     let summary = result === 'win'
       ? `You win ${hand.pot.toFixed(1)}bb!`
       : result === 'lose'
@@ -760,22 +738,19 @@ export default function PlayPage() {
     setTimeout(() => {
       let feedback = '';
       if (result === 'fold') {
-        feedback = `Folding ${notation} - sometimes the right play. Think about whether you had the odds to continue, and what you were up against.`;
+        feedback = `Folding ${notation} - sometimes the right play. Think about whether you had the odds to continue, and what you were up against.\n\nClick "Deal Next Hand" below to continue.`;
       } else if (result === 'win') {
-        feedback = `Nice! Review: could you have extracted more value? Or was pot control the right approach?`;
+        feedback = `Nice! Review: could you have extracted more value? Or was pot control the right approach?\n\nClick "Deal Next Hand" to continue.`;
       } else {
-        feedback = `Tough spot. Was there a street where you could've gotten away cheaper, or was this just a cooler?`;
+        feedback = `Tough spot. Was there a street where you could've gotten away cheaper, or was this just a cooler?\n\nClick "Deal Next Hand" to continue.`;
       }
-      coachSays(feedback, ['Deal next hand', 'Show Range'], true);
+      coachSays(feedback);
     }, 800);
   }, [coachSays]);
 
   // ============ INITIALIZE ============
   useEffect(() => {
-    coachSays("Welcome to Live Training. We'll play full hands and I'll coach you through each decision.");
-    setTimeout(() => {
-      coachSays("I'll explain what your hand, position, and the board mean for your decision. Ready?", ['Deal me in'], true);
-    }, 800);
+    coachSays("Welcome to Live Training. We'll play full hands and I'll coach you through each decision.\n\nClick 'Deal Me In' below to start.");
   }, []);
 
   // Track last topic for follow-up questions
@@ -1035,6 +1010,98 @@ export default function PlayPage() {
       return response;
     }
 
+    // === BLUFFING / FOLD EQUITY ===
+    if (hasAny('bluff', 'fold equity', 'semi-bluff', 'semibluff', 'should i bluff', 'when to bluff', 'how to bluff')) {
+      lastTopicRef.current = 'bluff';
+
+      let response = `**Bluffing Framework:**\n\n`;
+      response += `**Fold Equity** = how often villain folds to your bet.\n`;
+      response += `**Showdown Equity** = how often you win at showdown.\n\n`;
+
+      response += `**When to bluff:**\n`;
+      response += `• Villain is tight/nitty (high fold equity)\n`;
+      response += `• Board is scary (flushes, straights possible)\n`;
+      response += `• You have blockers to their strong hands\n`;
+      response += `• You have outs if called (semi-bluff)\n\n`;
+
+      response += `**When NOT to bluff:**\n`;
+      response += `• Villain is a calling station\n`;
+      response += `• Board is dry (hard to rep anything)\n`;
+      response += `• Multiple players in pot\n\n`;
+
+      if (mainVillain) {
+        if (mainVillain.playerType === 'FISH' || mainVillain.playerType === 'CALLING_STATION') {
+          response += `**vs ${mainVillain.name}:** Don't bluff! They call everything. Only value bet.`;
+        } else if (mainVillain.playerType === 'NIT' || mainVillain.playerType === 'TAG') {
+          response += `**vs ${mainVillain.name}:** Good bluff target. They fold a lot. Bet scary boards.`;
+        } else if (mainVillain.playerType === 'LAG' || mainVillain.playerType === 'MANIAC') {
+          response += `**vs ${mainVillain.name}:** Risky to bluff - they might re-bluff. Better to trap.`;
+        }
+      }
+
+      return response;
+    }
+
+    // === SHOWDOWN VALUE / EQUITY ===
+    if (hasAny('showdown', 'my equity', 'hand equity', 'how much equity', 'calculate equity', 'win percent')) {
+      lastTopicRef.current = 'equity';
+
+      let response = `**Your Equity with ${notation}:**\n\n`;
+
+      if (board.length === 0) {
+        response += `**Preflop equity (approximate):**\n`;
+        if (handAnalysis.strength === 'strong') {
+          response += `• vs random hand: ~65-85%\n`;
+          response += `• vs tight range (top 10%): ~40-60%\n`;
+        } else if (handAnalysis.strength === 'medium') {
+          response += `• vs random hand: ~50-60%\n`;
+          response += `• vs tight range: ~30-45%\n`;
+        } else {
+          response += `• vs random hand: ~35-50%\n`;
+          response += `• vs tight range: ~25-35%\n`;
+        }
+      } else {
+        response += `**Made hand:** ${handAnalysis.made}\n`;
+        if (handAnalysis.draws.length > 0) {
+          response += `**Draws:** ${handAnalysis.draws.join(', ')}\n`;
+          response += `\n**Draw equities:**\n`;
+          if (handAnalysis.draws.includes('flush draw')) {
+            response += `• Flush draw: ~35% (9 outs × 4)\n`;
+          }
+          if (handAnalysis.draws.includes('open-ended straight draw')) {
+            response += `• Open-ender: ~32% (8 outs × 4)\n`;
+          }
+          if (handAnalysis.draws.includes('gutshot')) {
+            response += `• Gutshot: ~17% (4 outs × 4)\n`;
+          }
+        }
+        response += `\n**Strength:** ${handAnalysis.strength.toUpperCase()}\n`;
+      }
+
+      response += `\n**Remember:** Equity changes based on villain's range. Against tight = lower. Against loose = higher.`;
+
+      return response;
+    }
+
+    // === RULES / HOW POKER WORKS ===
+    if (hasAny('blind', 'why don\'t', 'don\'t they', 'dont they', 'rules', 'how does', 'why do', 'what is a', 'what\'s a')) {
+      lastTopicRef.current = 'rules';
+
+      if (hasAny('blind')) {
+        return `**Blinds Explained:**\n\n• Small Blind (SB): Posts 0.5bb, acts first postflop\n• Big Blind (BB): Posts 1bb, acts last preflop\n\n**Why blinds exist:** To create action! Without blinds, everyone would just wait for AA.\n\n**Blind defense:** BB already has 1bb invested, so they defend wider. SB is in worst position, plays tighter.\n\n**In this hand:** The blinds posted their forced bets. Other players folded to you. Now you decide.`;
+      }
+
+      if (hasAny('position')) {
+        return `**Position Explained:**\n\n• **Early position** (UTG, HJ): Act first, play tight\n• **Middle** (CO): Can open wider\n• **Late** (BTN): Best spot, play widest\n• **Blinds**: Forced to post, worst position postflop\n\n**Why it matters:** Acting LAST lets you see what others do before deciding. Information = power.`;
+      }
+
+      if (hasAny('pot odds')) {
+        return `**Pot Odds Explained:**\n\nPot odds = Risk ÷ (Pot + Risk)\n\nIf pot is 10bb and you need to call 5bb:\n5 ÷ 15 = 33%\n\nYou need 33%+ equity to call profitably.\n\n**Quick rule:** If your draw hits ~1/3 of the time and pot odds are ~33%, it's breakeven. Better odds = call. Worse = fold.`;
+      }
+
+      return `**Poker Basics:**\n\n• Each player gets 2 cards (hole cards)\n• 5 community cards: Flop (3), Turn (1), River (1)\n• Best 5-card hand wins\n• Betting rounds: Preflop, Flop, Turn, River\n\nWhat specific rule are you asking about?`;
+    }
+
     // === ODDS/EQUITY ===
     if (hasAny('odds', 'equity', 'percent', '%', 'ev', 'expected value', 'profitable', 'math')) {
       lastTopicRef.current = 'odds';
@@ -1113,33 +1180,15 @@ export default function PlayPage() {
     return getFullSummary();
   }, []);
 
-  // ============ RESPONSE HANDLER ============
+  // ============ RESPONSE HANDLER (chat only - buttons are in left panel) ============
   const handleResponse = useCallback((response: string, isCustom = false) => {
-    if (response === 'Deal me in' || response === 'Deal next hand') {
-      startNewHand();
-      return;
-    }
-
-    if (response === 'Show Range') {
-      setGame(prev => ({ ...prev, showRange: !prev.showRange }));
-      if (!game.showRange) {
-        coachSays("Range chart shown. Green = in range. Your hand is highlighted.");
-      }
-      return;
-    }
-
-    if (waitingForAction && !isCustom) {
-      handleHeroAction(response);
-      return;
-    }
-
-    // Custom questions - use answerQuestion
-    if (isCustom && game.hand) {
+    // Chat is only for questions now - all actions handled by buttons in left panel
+    if (game.hand) {
       addMessage('user', response);
       const answer = answerQuestion(response, game.hand);
       coachSays(answer);
     }
-  }, [game, waitingForAction, startNewHand, handleHeroAction, coachSays, answerQuestion, addMessage]);
+  }, [game.hand, coachSays, answerQuestion, addMessage]);
 
   // ============ RENDER ============
   const hand = game.hand;
@@ -1200,28 +1249,113 @@ export default function PlayPage() {
             heroPosition={hero?.position || 'BTN'}
           />
 
-          {/* Custom bet input */}
-          {waitingForAction && hand && (
-            <div className="flex gap-2 items-center bg-gray-900 p-3 rounded-lg">
-              <span className="text-sm text-gray-400">Custom bet:</span>
-              <input
-                type="number"
-                value={customBet}
-                onChange={(e) => setCustomBet(e.target.value)}
-                placeholder="Enter amount"
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1 w-24 text-white"
-              />
-              <span className="text-sm text-gray-400">bb</span>
+          {/* Action buttons - ALWAYS visible when hero's turn */}
+          {waitingForAction && hand && hero && (
+            <div className="bg-gray-900 p-4 rounded-xl space-y-3">
+              <div className="text-sm text-gray-400 mb-2">
+                {hand.currentBet > hero.currentBet
+                  ? `${(hand.currentBet - hero.currentBet).toFixed(1)}bb to call into ${hand.pot.toFixed(1)}bb pot`
+                  : `Pot: ${hand.pot.toFixed(1)}bb. Your action.`}
+              </div>
+
+              {/* Main action buttons */}
+              <div className="flex flex-wrap gap-2">
+                {hand.currentBet > hero.currentBet ? (
+                  <>
+                    <button
+                      onClick={() => handleHeroAction('Fold')}
+                      className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded-lg font-medium"
+                    >
+                      Fold
+                    </button>
+                    <button
+                      onClick={() => handleHeroAction(`Call ${(hand.currentBet - hero.currentBet).toFixed(1)}bb`)}
+                      className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded-lg font-medium"
+                    >
+                      Call {(hand.currentBet - hero.currentBet).toFixed(1)}bb
+                    </button>
+                    <button
+                      onClick={() => handleHeroAction(`Raise ${(hand.currentBet * 3).toFixed(1)}bb`)}
+                      className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg font-medium"
+                    >
+                      Raise to {(hand.currentBet * 3).toFixed(1)}bb
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleHeroAction('Check')}
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium"
+                    >
+                      Check
+                    </button>
+                    <button
+                      onClick={() => handleHeroAction(`Bet ${(hand.pot * 0.5).toFixed(1)}bb`)}
+                      className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg font-medium"
+                    >
+                      Bet {(hand.pot * 0.5).toFixed(1)}bb (½ pot)
+                    </button>
+                    <button
+                      onClick={() => handleHeroAction(`Bet ${hand.pot.toFixed(1)}bb`)}
+                      className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg font-medium"
+                    >
+                      Bet {hand.pot.toFixed(1)}bb (pot)
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Custom bet input */}
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  value={customBet}
+                  onChange={(e) => setCustomBet(e.target.value)}
+                  placeholder="Custom"
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-2 w-20 text-white"
+                />
+                <span className="text-sm text-gray-400">bb</span>
+                <button
+                  onClick={() => {
+                    if (customBet) {
+                      handleHeroAction(`Bet ${customBet}bb`);
+                    }
+                  }}
+                  disabled={!customBet}
+                  className="px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 rounded-lg font-medium"
+                >
+                  Custom Bet
+                </button>
+                <button
+                  onClick={() => setGame(prev => ({ ...prev, showRange: !prev.showRange }))}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium ml-auto"
+                >
+                  {game.showRange ? 'Hide Range' : 'Show Range'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Deal button when hand is over */}
+          {!waitingForAction && hand && hand.street === 'complete' && (
+            <div className="bg-gray-900 p-4 rounded-xl">
               <button
-                onClick={() => {
-                  if (customBet) {
-                    handleHeroAction(`Bet ${customBet}bb`);
-                  }
-                }}
-                disabled={!customBet}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 rounded text-sm"
+                onClick={() => startNewHand()}
+                className="w-full px-4 py-3 bg-green-700 hover:bg-green-600 rounded-lg font-medium text-lg"
               >
-                Bet/Raise
+                Deal Next Hand
+              </button>
+            </div>
+          )}
+
+          {/* Initial deal button */}
+          {!hand && (
+            <div className="bg-gray-900 p-4 rounded-xl">
+              <button
+                onClick={() => startNewHand()}
+                className="w-full px-4 py-3 bg-green-700 hover:bg-green-600 rounded-lg font-medium text-lg"
+              >
+                Deal Me In
               </button>
             </div>
           )}
