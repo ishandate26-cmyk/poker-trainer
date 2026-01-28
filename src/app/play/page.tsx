@@ -952,25 +952,115 @@ export default function PlayPage() {
       return `Let's think about this.\n\nPot: ${hand.pot.toFixed(1)}bb. You need ${toCall.toFixed(1)}bb to call.\n\nThat's ${potOdds.toFixed(0)}% pot odds - you need ${potOdds.toFixed(0)}% equity to break even.\n\nNow the question: does ${notation} have ${potOdds.toFixed(0)}%+ equity against their range?\n\nAgainst a tight range (AA-TT, AK): probably not.\nAgainst a loose range (any pair, any draw): probably yes.\n\nWhat do you think they have?`;
     }
 
-    // Range questions
-    if (q.includes('range')) {
+    // Range questions - what hands do they have
+    if (q.includes('range') || q.includes('what hands') || q.includes('hands would') || q.includes('would they play') || q.includes('they have') || q.includes('holding') || q.includes('cards')) {
       if (villains.length === 0) {
         return "Everyone folded, so their ranges don't matter anymore. You win!";
       }
       const v = villains[0];
       const profile = PLAYER_PROFILES[v.playerType];
 
+      let response = '';
+
       if (v.playerType === 'NIT' || v.playerType === 'TAG') {
-        return `${v.name} is tight. Think top 15% of hands: big pairs (AA-TT), big aces (AK-AJ), suited broadways.\n\nIf they're betting here, narrow it down more. What hands bet like this? Usually value-heavy.`;
+        response = `${v.name} is tight. Their range is narrow.\n\n`;
+        response += `**Preflop they play:** AA-TT, AK, AQ, AJs+, KQs - maybe 12-15% of hands.\n\n`;
+        response += `**On this board:** Think about what part of that range connects. Big pairs? Top pair? Draws?\n\n`;
+        response += `When a tight player bets, they usually have something. The question is: do you beat their value hands?`;
       } else if (v.playerType === 'LAG' || v.playerType === 'MANIAC') {
-        return `${v.name} plays wide. Could be anything that connects with the board, any draw, any pair, or pure air.\n\nTheir range is hard to narrow. Focus on your hand strength instead - do you beat enough of their bluffs?`;
+        response = `${v.name} is loose-aggressive. Their range is WIDE.\n\n`;
+        response += `**Preflop they play:** Any pair, any suited, any connector, any ace, any face - 35-50% of hands.\n\n`;
+        response += `**On this board:** They could have anything. Top pair, middle pair, draws, complete air.\n\n`;
+        response += `Against LAGs, you can't narrow their range easily. Instead ask: does my hand beat enough of their bluffs to call?`;
+      } else if (v.playerType === 'FISH' || v.playerType === 'CALLING_STATION') {
+        response = `${v.name} is a fish/calling station. They play too many hands.\n\n`;
+        response += `**Preflop they play:** Anything that looks pretty - any ace, any suited, any face card, any pair.\n\n`;
+        response += `**On this board:** They'll have lots of weak pairs, bad draws, and random stuff.\n\n`;
+        response += `Good news: your medium-strength hands are often ahead. Bad news: they don't fold, so don't bluff.`;
       } else {
-        return `${v.name} is playing reasonable ranges. Think standard stuff - pairs, broadways, suited connectors.\n\nNarrow their range based on the action. Did they raise preflop? From what position? That tells you a lot.`;
+        response = `${v.name} plays standard ranges.\n\n`;
+        response += `**Preflop:** Position-based ranges - tighter from early, wider from late.\n\n`;
+        response += `**On this board:** They have a reasonable mix of value hands and draws.\n\n`;
+        response += `Narrow their range by the action: What position did they open from? Did they 3-bet or just call?`;
       }
+
+      // Add board-specific context
+      if (board.length > 0) {
+        const boardStr = board.map(c => c.rank + c.suit).join(' ');
+        response += `\n\n**Board ${boardStr}:** What hands in their range connect? What would they bet with?`;
+      }
+
+      return response;
+    }
+
+    // Short responses like "all", "more", "explain" - give context-aware summary
+    if (q.length < 15 || q.includes('all') || q.includes('more') || q.includes('explain') || q.includes('tell me')) {
+      const handAnalysis = analyzeHandStrength(hero.cards, board);
+      const mainVillain = villains[0];
+
+      let response = `Alright, here's the full picture:\n\n`;
+
+      // Your hand
+      response += `**Your hand (${notation}):** ${handAnalysis.made}`;
+      if (handAnalysis.draws.length > 0) {
+        response += ` with ${handAnalysis.draws.join(', ')}`;
+      }
+      response += `. ${handAnalysis.strength === 'strong' ? 'Strong.' : handAnalysis.strength === 'medium' ? 'Medium strength.' : handAnalysis.strength === 'draw' ? 'Drawing hand.' : 'Weak.'}\n\n`;
+
+      // The board
+      if (board.length > 0) {
+        const texture = analyzeBoardTexture(board);
+        response += `**Board (${board.map(c => c.rank + c.suit).join(' ')}):** ${texture}\n\n`;
+      }
+
+      // Villain
+      if (mainVillain) {
+        const profile = PLAYER_PROFILES[mainVillain.playerType];
+        response += `**${mainVillain.name}:** ${profile.name}. `;
+        if (mainVillain.playerType === 'LAG' || mainVillain.playerType === 'MANIAC') {
+          response += `Aggressive - could be bluffing. Call down lighter.\n\n`;
+        } else if (mainVillain.playerType === 'NIT' || mainVillain.playerType === 'TAG') {
+          response += `Tight - probably has something. Be careful.\n\n`;
+        } else if (mainVillain.playerType === 'FISH' || mainVillain.playerType === 'CALLING_STATION') {
+          response += `Calls too much - value bet, don't bluff.\n\n`;
+        } else {
+          response += `Standard player.\n\n`;
+        }
+      }
+
+      // Pot odds if facing bet
+      if (toCall > 0) {
+        const potOdds = (toCall / (hand.pot + toCall) * 100);
+        response += `**Pot odds:** ${potOdds.toFixed(0)}% to call (need ${potOdds.toFixed(0)}%+ equity).\n\n`;
+      }
+
+      // Recommendation
+      response += `**My take:** `;
+      if (toCall > 0) {
+        if (handAnalysis.strength === 'strong') {
+          response += `You're ahead. Raise for value.`;
+        } else if (handAnalysis.strength === 'medium') {
+          response += `Tricky spot. If villain is aggressive, calling is fine. Against tight players, consider folding.`;
+        } else if (handAnalysis.strength === 'draw') {
+          response += `Check your draw odds vs pot odds. If math works, call.`;
+        } else {
+          response += `Probably a fold unless you have a strong bluff read.`;
+        }
+      } else {
+        if (handAnalysis.strength === 'strong') {
+          response += `Bet for value. 50-75% pot.`;
+        } else if (handAnalysis.strength === 'medium') {
+          response += `Can bet small or check for pot control.`;
+        } else {
+          response += `Check. Bluff only if villain folds a lot.`;
+        }
+      }
+
+      return response;
     }
 
     // General catch-all that still teaches
-    return `Let me ask you this - what specifically are you unsure about?\n\nIs it:\n• What they have? (Ask about their range)\n• What your hand is worth? (Ask about equity)\n• Whether to bet/call/fold? (Ask "what should I do")\n\nThe more specific your question, the better I can help.`;
+    return `I'm not sure what you're asking. Try:\n\n• "What hands does [player] have?"\n• "Should I bet or check?"\n• "What are my odds?"\n• "Tell me everything"`;
   }, []);
 
   // ============ RESPONSE HANDLER ============
