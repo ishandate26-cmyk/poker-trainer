@@ -1047,7 +1047,13 @@ export default function PlayPage() {
 
           {/* Range display */}
           {game.showRange && hero && (
-            <div className="bg-gray-900 p-4 rounded-xl">
+            <div className="bg-gray-900 p-4 rounded-xl relative">
+              <button
+                onClick={() => setGame(prev => ({ ...prev, showRange: false }))}
+                className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 rounded-full text-gray-300 hover:text-white transition"
+              >
+                ✕
+              </button>
               <h3 className="text-sm font-semibold mb-2 text-gray-400">
                 {hand?.street === 'preflop' && hand.lastAggressorPosition
                   ? `${hero.position} vs ${hand.lastAggressorPosition} open (green=3bet, yellow=call)`
