@@ -86,7 +86,7 @@ function analyzeHandStrength(heroCards: [Card, Card], board: Card[]): {
       return { made: 'high cards', draws: [], strength: 'medium' };
     }
     if (isSuited) {
-      return { made: 'suited cards', draws: ['flush potential'], strength: 'weak' };
+      return { made: 'suited cards', draws: ['flush potential'], strength: 'draw' };
     }
     return { made: 'speculative', draws: [], strength: 'weak' };
   }
@@ -810,26 +810,95 @@ export default function PlayPage() {
       return response;
     };
 
+    // === OUTS / EQUITY CALCULATION ===
+    if (hasAny('outs', 'equity', 'flush draw', 'straight draw', 'calculate', 'times', 'multiply', 'math')) {
+      // Actually do the math for their specific draws
+      const hasFlushDraw = handAnalysis.draws.includes('flush draw') || handAnalysis.draws.includes('flush potential');
+      const hasOESD = handAnalysis.draws.includes('open-ended straight draw');
+      const hasGutshot = handAnalysis.draws.includes('gutshot');
+
+      let response = `Let me do the actual math for YOUR hand:\n\n`;
+
+      if (hasFlushDraw || hasOESD || hasGutshot) {
+        let totalOuts = 0;
+        let drawName = '';
+
+        if (hasFlushDraw) {
+          totalOuts += 9;
+          drawName = 'flush draw';
+          response += `**Flush draw:** 9 outs (13 cards of your suit minus 4 you see)\n`;
+        }
+        if (hasOESD) {
+          totalOuts += 8;
+          drawName = hasFlushDraw ? drawName + ' + OESD' : 'open-ended straight draw';
+          response += `**OESD:** 8 outs (4 cards on each end)\n`;
+        }
+        if (hasGutshot) {
+          totalOuts += 4;
+          drawName = drawName ? drawName + ' + gutshot' : 'gutshot';
+          response += `**Gutshot:** 4 outs (4 cards of one rank)\n`;
+        }
+
+        const street = hand.street;
+        let equity = 0;
+        if (street === 'flop') {
+          equity = totalOuts * 4; // Rough rule of 4
+          response += `\n**Your equity (flop, 2 cards to come):**\n`;
+          response += `${totalOuts} outs × 4 = ~${equity}%\n\n`;
+        } else if (street === 'turn') {
+          equity = totalOuts * 2; // Rule of 2
+          response += `\n**Your equity (turn, 1 card to come):**\n`;
+          response += `${totalOuts} outs × 2 = ~${equity}%\n\n`;
+        }
+
+        // Compare to pot odds
+        if (toCall > 0) {
+          const potOdds = (toCall / (hand.pot + toCall) * 100);
+          response += `**Pot odds:** ${potOdds.toFixed(0)}%\n\n`;
+          if (equity > potOdds) {
+            response += `✓ Your equity (${equity}%) > pot odds (${potOdds.toFixed(0)}%). **CALL is profitable.**`;
+          } else {
+            response += `✗ Your equity (${equity}%) < pot odds (${potOdds.toFixed(0)}%). **FOLD or raise as semi-bluff.**`;
+          }
+        } else {
+          response += `No bet facing you. You can bet as a semi-bluff or check for a free card.`;
+        }
+      } else {
+        response += `You don't have a draw right now. Your hand is ${handAnalysis.made}.\n\n`;
+        if (handAnalysis.strength === 'strong') {
+          response += `But that's OK - you have a made hand! Bet for value.`;
+        } else {
+          response += `Without a draw or made hand, this is a check/fold spot.`;
+        }
+      }
+
+      return response;
+    }
+
     // === SIMPLE / BREAK DOWN / EXPLAIN SIMPLER ===
     if (hasAny('simpler', 'simple', 'basic', 'dumb it down', 'eli5', 'confused', 'don\'t understand', 'break down', 'break it down')) {
-      // Give super simple advice for current situation
+      // Check for draws first
+      const hasFlushDraw = handAnalysis.draws.includes('flush draw') || handAnalysis.draws.includes('flush potential');
+
       if (toCall > 0) {
         if (handAnalysis.strength === 'strong') {
-          return `Simple: You have a good hand (${handAnalysis.made}). They bet. You should raise or call. Don't fold good hands.`;
+          return `Simple: You have a good hand (${handAnalysis.made}). They bet. Raise or call.`;
         } else if (handAnalysis.strength === 'medium') {
-          return `Simple: You have an OK hand (${handAnalysis.made}). They bet ${toCall.toFixed(1)}bb. If they bluff a lot, call. If they're tight, fold.`;
-        } else if (handAnalysis.strength === 'draw') {
-          return `Simple: You're drawing (${handAnalysis.draws.join(', ')}). You need about 4:1 odds for a flush draw. Right now you're getting ${(hand.pot / toCall).toFixed(1)}:1. ${hand.pot / toCall > 3 ? 'Odds are decent.' : 'Odds are bad.'}`;
+          return `Simple: You have an OK hand (${handAnalysis.made}). If they bluff a lot, call. If they're tight, fold.`;
+        } else if (handAnalysis.strength === 'draw' || hasFlushDraw) {
+          const equity = hasFlushDraw ? 36 : 17;
+          const potOdds = (toCall / (hand.pot + toCall) * 100);
+          return `Simple: You have a draw (~${equity}% to hit). You need ${potOdds.toFixed(0)}% to call. ${equity > potOdds ? 'Math works - CALL.' : 'Math doesn\'t work - FOLD or semi-bluff.'}`;
         } else {
-          return `Simple: You have nothing (${handAnalysis.made}). They bet. Fold. Don't call bets with nothing.`;
+          return `Simple: You have nothing. Fold.`;
         }
       } else {
         if (handAnalysis.strength === 'strong') {
-          return `Simple: You have a good hand (${handAnalysis.made}). They checked. Bet to win more money. About half to two-thirds of the pot.`;
-        } else if (handAnalysis.strength === 'medium') {
-          return `Simple: You have an OK hand (${handAnalysis.made}). You can bet small to win a bit more, or check to keep the pot small. Either is fine.`;
+          return `Simple: Good hand, they checked. Bet ~${(hand.pot * 0.66).toFixed(1)}bb for value.`;
+        } else if (handAnalysis.strength === 'draw' || hasFlushDraw) {
+          return `Simple: You have a draw. Bet ~${(hand.pot * 0.5).toFixed(1)}bb as a semi-bluff, or check for free card.`;
         } else {
-          return `Simple: You have nothing. Check. Don't bet nothing unless they fold a lot.`;
+          return `Simple: Weak hand. Check. Take your free card.`;
         }
       }
     }
