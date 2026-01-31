@@ -45,7 +45,12 @@ DO:
 - Answer the question first
 - Do quick math when relevant
 - Give a clear recommendation
-- Sound like a friend who's good at poker`;
+- Sound like a friend who's good at poker
+
+CRITICAL - UNDERSTAND THE ACTION:
+- "Checked to hero" = NO bet to call. Hero can CHECK (free) or BET. Cannot fold.
+- "Facing Xbb to call" = There IS a bet. Hero can CALL, RAISE, or FOLD.
+- NEVER say "fold" when it's checked to hero - that's not an option!`;
 
 interface HandContext {
   heroCards: string;
@@ -99,14 +104,14 @@ export async function POST(request: NextRequest) {
       // Clarify if this is a real bet or just completing the blind
       const isJustBlind = handContext.street === 'preflop' && handContext.toCall <= 1;
       if (isJustBlind && handContext.heroPosition === 'SB') {
-        contextMsg += `Action: Hero in SB needs to complete 0.5bb more to see flop (BB has just posted, not raised)\n`;
+        contextMsg += `Action: Hero in SB can complete 0.5bb, raise, or fold\n`;
       } else {
-        contextMsg += `Facing: ${handContext.toCall}bb to call\n`;
+        contextMsg += `Action: FACING A BET - ${handContext.toCall}bb to call. Options: CALL, RAISE, or FOLD\n`;
       }
       const potOdds = (handContext.toCall / (handContext.pot + handContext.toCall) * 100).toFixed(0);
       contextMsg += `Pot odds: ${potOdds}%\n`;
     } else {
-      contextMsg += `Action: Checked to hero\n`;
+      contextMsg += `Action: CHECKED TO HERO - no bet to call. Options: CHECK or BET (cannot fold)\n`;
     }
 
     if (handContext.villainName) {
