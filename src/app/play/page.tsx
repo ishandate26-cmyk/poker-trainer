@@ -1441,15 +1441,62 @@ export default function PlayPage() {
     return getFullBreakdown();
   }, []);
 
-  // ============ RESPONSE HANDLER (chat only - buttons are in left panel) ============
-  const handleResponse = useCallback((response: string, isCustom = false) => {
-    // Chat is only for questions now - all actions handled by buttons in left panel
-    if (game.hand) {
-      addMessage('user', response);
-      const answer = answerQuestion(response, game.hand);
-      coachSays(answer);
+  // ============ RESPONSE HANDLER (chat only - calls AI for questions) ============
+  const handleResponse = useCallback(async (response: string, isCustom = false) => {
+    if (!game.hand) return;
+
+    const hand = game.hand;
+    const hero = hand.players.find(p => p.isHero)!;
+    const villains = hand.players.filter(p => !p.isFolded && !p.isHero);
+    const mainVillain = villains[0];
+    const heroAnalysis = analyzeHandStrength(hero.cards, hand.board);
+    const heroEval = hand.board.length > 0 ? evaluateHand([...hero.cards, ...hand.board]) : null;
+    const toCall = hand.currentBet - hero.currentBet;
+
+    addMessage('user', response);
+    setIsThinking(true);
+
+    // Build context for the AI
+    const handContext = {
+      heroCards: `${hero.cards[0].rank}${hero.cards[0].suit} ${hero.cards[1].rank}${hero.cards[1].suit}`,
+      heroPosition: hero.position,
+      board: hand.board.map(c => `${c.rank}${c.suit}`).join(' '),
+      pot: hand.pot,
+      toCall,
+      street: hand.street,
+      villainName: mainVillain?.name,
+      villainPosition: mainVillain?.position,
+      villainType: mainVillain ? PLAYER_PROFILES[mainVillain.playerType].name : undefined,
+      heroMadeHand: heroEval?.rankName || heroAnalysis.made,
+      heroDraws: heroAnalysis.draws,
+      heroOuts: heroAnalysis.outs,
+      actionHistory: hand.actionHistory.slice(-5),
+    };
+
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: response, handContext }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setIsThinking(false);
+        addMessage('coach', data.answer);
+      } else {
+        // Fallback to local answer if API fails
+        setIsThinking(false);
+        const fallbackAnswer = answerQuestion(response, hand);
+        addMessage('coach', fallbackAnswer);
+      }
+    } catch (error) {
+      // Fallback to local answer if API fails
+      setIsThinking(false);
+      const fallbackAnswer = answerQuestion(response, hand);
+      addMessage('coach', fallbackAnswer);
     }
-  }, [game.hand, coachSays, answerQuestion, addMessage]);
+  }, [game.hand, addMessage, answerQuestion]);
 
   // ============ RENDER ============
   const hand = game.hand;
