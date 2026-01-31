@@ -62,62 +62,92 @@ function analyzeHandStrength(heroCards: [Card, Card], board: Card[]): {
   made: string;
   draws: string[];
   strength: 'strong' | 'medium' | 'weak' | 'draw';
+  outs: number;
 } {
+  const isSuited = heroCards[0].suit === heroCards[1].suit;
+  const heroSuit = isSuited ? heroCards[0].suit : null;
+
   if (board.length === 0) {
     const notation = cardsToHandNotation(heroCards);
     const isPair = heroCards[0].rank === heroCards[1].rank;
-    const isSuited = heroCards[0].suit === heroCards[1].suit;
     const highRanks = ['A', 'K', 'Q', 'J', 'T'];
     const hasHighCard = highRanks.includes(heroCards[0].rank) || highRanks.includes(heroCards[1].rank);
 
     if (isPair && ['A', 'K', 'Q', 'J', 'T'].includes(heroCards[0].rank)) {
-      return { made: 'premium pair', draws: [], strength: 'strong' };
+      return { made: 'premium pair', draws: [], strength: 'strong', outs: 0 };
     }
     if (isPair) {
-      return { made: 'pocket pair', draws: [], strength: 'medium' };
+      return { made: 'pocket pair', draws: [], strength: 'medium', outs: 0 };
     }
     if (notation === 'AKs' || notation === 'AKo') {
-      return { made: 'big slick', draws: [], strength: 'strong' };
+      return { made: 'big slick', draws: [], strength: 'strong', outs: 0 };
     }
     if (hasHighCard && isSuited) {
-      return { made: 'suited broadway', draws: ['flush potential'], strength: 'medium' };
+      return { made: 'suited broadway', draws: ['flush potential'], strength: 'medium', outs: 0 };
     }
     if (hasHighCard) {
-      return { made: 'high cards', draws: [], strength: 'medium' };
+      return { made: 'high cards', draws: [], strength: 'medium', outs: 0 };
     }
     if (isSuited) {
-      return { made: 'suited cards', draws: ['flush potential'], strength: 'draw' };
+      return { made: 'suited cards', draws: ['flush potential'], strength: 'draw', outs: 0 };
     }
-    return { made: 'speculative', draws: [], strength: 'weak' };
+    return { made: 'speculative', draws: [], strength: 'weak', outs: 0 };
   }
 
   const fullHand = [...heroCards, ...board];
   const evaluation = evaluateHand(fullHand);
   const draws: string[] = [];
+  let totalOuts = 0;
 
-  // Check for draws
-  const suits = fullHand.map(c => c.suit);
-  const suitCounts = suits.reduce((acc, s) => {
-    acc[s] = (acc[s] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  const maxSuitCount = Math.max(...Object.values(suitCounts));
+  // Check for flush draw - ONLY if hero has suited cards that match board cards
+  if (isSuited && heroSuit) {
+    const boardSuitCount = board.filter(c => c.suit === heroSuit).length;
+    const totalSuitCount = boardSuitCount + 2; // hero has 2 of this suit
 
-  if (maxSuitCount === 4) draws.push('flush draw');
-
-  const rankValues = fullHand.map(c => {
-    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
-    return rankOrder.indexOf(c.rank);
-  }).sort((a, b) => a - b);
-
-  // Check for straight draws (simplified)
-  const uniqueRanks = [...new Set(rankValues)];
-  for (let i = 0; i < uniqueRanks.length - 3; i++) {
-    if (uniqueRanks[i + 3] - uniqueRanks[i] <= 4) {
-      if (uniqueRanks[i + 3] - uniqueRanks[i] === 3) draws.push('open-ended straight draw');
-      else if (uniqueRanks[i + 3] - uniqueRanks[i] === 4) draws.push('gutshot');
-      break;
+    if (totalSuitCount === 4) {
+      draws.push('flush draw');
+      totalOuts += 9;
+    } else if (totalSuitCount === 3 && board.length <= 3) {
+      draws.push('backdoor flush draw');
     }
+  }
+
+  // Check for straight draws
+  const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+  const rankValues = fullHand.map(c => rankOrder.indexOf(c.rank));
+  const uniqueRanks = [...new Set(rankValues)].sort((a, b) => a - b);
+
+  // Better straight draw detection
+  let hasOESD = false;
+  let hasGutshot = false;
+
+  // Check for 4 cards within 5 rank span (OESD or gutshot)
+  for (let i = 0; i < uniqueRanks.length - 3; i++) {
+    const span = uniqueRanks[i + 3] - uniqueRanks[i];
+    if (span === 3) {
+      // 4 consecutive = OESD
+      hasOESD = true;
+      break;
+    } else if (span === 4) {
+      // 4 within 5 = gutshot
+      hasGutshot = true;
+    }
+  }
+
+  // Also check wheel draw (A-2-3-4-5)
+  if (uniqueRanks.includes(12)) { // Has Ace
+    const lowRanks = uniqueRanks.filter(r => r <= 3 || r === 12);
+    if (lowRanks.length >= 4) {
+      hasOESD = true;
+    }
+  }
+
+  if (hasOESD && evaluation.rank < 4) { // Don't count if already have straight
+    draws.push('open-ended straight draw');
+    totalOuts += 8;
+  } else if (hasGutshot && evaluation.rank < 4) {
+    draws.push('gutshot');
+    totalOuts += 4;
   }
 
   // Hand rankings: 0=high card, 1=pair, 2=two pair, 3=trips, 4=straight, 5=flush, 6=full house, 7=quads, 8=straight flush
@@ -129,7 +159,8 @@ function analyzeHandStrength(heroCards: [Card, Card], board: Card[]): {
   return {
     made: evaluation.rankName,
     draws,
-    strength
+    strength,
+    outs: totalOuts
   };
 }
 
@@ -147,9 +178,14 @@ function getCoachingAdvice(
 
   const parts: string[] = [];
 
-  // Always state what you have first
+  // Always state what you have first - be specific
   if (hand.board.length > 0) {
-    parts.push(`You have **${handAnalysis.made}** with ${notation}.`);
+    let handDesc = `You have **${handAnalysis.made}**`;
+    if (handAnalysis.draws.length > 0) {
+      handDesc += ` + **${handAnalysis.draws.join(' + ')}**`;
+    }
+    handDesc += ` with ${notation}.`;
+    parts.push(handDesc);
   }
 
   // Facing a bet
@@ -168,12 +204,20 @@ function getCoachingAdvice(
         parts.push(`Medium hand. Standard call if pot odds are good.`);
       }
     } else if (handAnalysis.strength === 'draw') {
-      const neededEquity = potOdds;
-      const hasFlushDraw = handAnalysis.draws.includes('flush draw');
-      const drawEquity = hasFlushDraw ? 35 : 17;
-      parts.push(`Drawing hand (~${drawEquity}% equity). ${drawEquity > neededEquity ? 'Odds are good - call.' : 'Odds are thin. Need implied odds to call.'}`);
+      // Use actual outs for equity calculation
+      const outs = handAnalysis.outs;
+      const street = hand.street;
+      const equity = street === 'flop' ? outs * 4 : outs * 2;
+
+      parts.push(`**Drawing hand!** ${outs} outs = ~${equity}% equity.`);
+
+      if (equity > potOdds) {
+        parts.push(`✓ Your equity (${equity}%) beats pot odds (${potOdds.toFixed(0)}%). **Call is profitable.**`);
+      } else {
+        parts.push(`✗ Your equity (${equity}%) doesn't beat pot odds (${potOdds.toFixed(0)}%). Fold, or raise as semi-bluff.`);
+      }
     } else {
-      parts.push(`Weak hand. Fold unless you have a strong read they're bluffing.`);
+      parts.push(`Weak hand (${handAnalysis.made}). Fold unless you have a strong read they're bluffing.`);
     }
   } else {
     // Checked to us
@@ -188,7 +232,8 @@ function getCoachingAdvice(
         parts.push(`Against ${mainVillain.name} who calls too much - bet for value.`);
       }
     } else if (handAnalysis.strength === 'draw') {
-      parts.push(`Draw. Could semi-bluff (${(hand.pot * 0.5).toFixed(1)}bb) or check for a free card.`);
+      const outs = handAnalysis.outs;
+      parts.push(`**Draw** (${outs} outs). Semi-bluff ${(hand.pot * 0.5).toFixed(1)}bb, or check for free card.`);
     } else {
       parts.push(`Weak hand. Check and give up, or bluff if villain folds a lot.`);
     }
@@ -769,9 +814,12 @@ export default function PlayPage() {
 
     // Helper: give a full situation summary
     const getFullSummary = () => {
-      let response = `**Your hand (${notation}):** ${handAnalysis.made}`;
-      if (handAnalysis.draws.length > 0) response += ` + ${handAnalysis.draws.join(', ')}`;
-      response += `\n\n`;
+      let response = `**Your hand: ${notation}**\n`;
+      response += `• Made: ${handAnalysis.made}\n`;
+      if (handAnalysis.draws.length > 0) {
+        response += `• Draws: ${handAnalysis.draws.join(', ')} (${handAnalysis.outs} outs)\n`;
+      }
+      response += `• Strength: ${handAnalysis.strength.toUpperCase()}\n\n`;
 
       if (board.length > 0) {
         response += `**Board:** ${board.map(c => c.rank + c.suit).join(' ')} (${analyzeBoardTexture(board)})\n\n`;
@@ -781,94 +829,111 @@ export default function PlayPage() {
         const profile = PLAYER_PROFILES[mainVillain.playerType];
         response += `**${mainVillain.name}:** ${profile.name}`;
         if (mainVillain.playerType === 'LAG' || mainVillain.playerType === 'MANIAC') {
-          response += ` - aggressive, wide range, could be bluffing`;
+          response += ` - aggressive, bluffs often`;
         } else if (mainVillain.playerType === 'NIT' || mainVillain.playerType === 'TAG') {
-          response += ` - tight, usually has it when betting`;
+          response += ` - tight, usually has it`;
         } else if (mainVillain.playerType === 'FISH' || mainVillain.playerType === 'CALLING_STATION') {
-          response += ` - calls too much, don't bluff them`;
+          response += ` - calls everything`;
         }
         response += `\n\n`;
       }
 
       if (toCall > 0) {
         const potOdds = (toCall / (hand.pot + toCall) * 100);
-        response += `**Math:** ${toCall.toFixed(1)}bb to call into ${hand.pot.toFixed(1)}bb = ${potOdds.toFixed(0)}% pot odds\n\n`;
+        response += `**Math:** ${toCall.toFixed(1)}bb to call → ${potOdds.toFixed(0)}% pot odds\n\n`;
+
+        if (handAnalysis.outs > 0) {
+          const equity = hand.street === 'flop' ? handAnalysis.outs * 4 : handAnalysis.outs * 2;
+          response += `**Your equity:** ${handAnalysis.outs} outs × ${hand.street === 'flop' ? '4' : '2'} = ${equity}%\n\n`;
+        }
       }
 
-      response += `**Bottom line:** `;
+      response += `**→ Action:** `;
       if (handAnalysis.strength === 'strong') {
-        response += toCall > 0 ? `You're strong. Raise for value or call to trap.` : `Bet for value. 60-75% pot.`;
+        response += toCall > 0 ? `RAISE for value or CALL to trap.` : `BET 60-75% pot for value.`;
       } else if (handAnalysis.strength === 'medium') {
-        response += toCall > 0 ? `Medium hand. Call if villain is loose, fold if tight.` : `Bet small or check for pot control.`;
+        response += toCall > 0 ? `CALL vs bluffers, FOLD vs tight.` : `Bet small or CHECK.`;
       } else if (handAnalysis.strength === 'draw') {
-        const potOdds = toCall > 0 ? (toCall / (hand.pot + toCall) * 100) : 0;
-        response += toCall > 0 ? `Draw. ${potOdds < 35 ? 'Odds are good - call.' : 'Odds are marginal.'}` : `Semi-bluff or check for free card.`;
+        if (toCall > 0) {
+          const potOdds = (toCall / (hand.pot + toCall) * 100);
+          const equity = hand.street === 'flop' ? handAnalysis.outs * 4 : handAnalysis.outs * 2;
+          response += equity > potOdds ? `CALL - odds are good.` : `FOLD or semi-bluff RAISE.`;
+        } else {
+          response += `Semi-bluff BET or CHECK for free card.`;
+        }
       } else {
-        response += toCall > 0 ? `Weak. Fold unless you're sure they're bluffing.` : `Check. Only bluff vs tight players.`;
+        response += toCall > 0 ? `FOLD.` : `CHECK.`;
       }
 
       return response;
     };
 
     // === OUTS / EQUITY CALCULATION ===
-    if (hasAny('outs', 'equity', 'flush draw', 'straight draw', 'calculate', 'times', 'multiply', 'math')) {
-      // Actually do the math for their specific draws
-      const hasFlushDraw = handAnalysis.draws.includes('flush draw') || handAnalysis.draws.includes('flush potential');
-      const hasOESD = handAnalysis.draws.includes('open-ended straight draw');
-      const hasGutshot = handAnalysis.draws.includes('gutshot');
+    if (hasAny('outs', 'equity', 'flush draw', 'straight draw', 'calculate', 'times', 'multiply', 'math', 'draw', 'odds')) {
+      const totalOuts = handAnalysis.outs;
+      const draws = handAnalysis.draws;
 
-      let response = `Let me do the actual math for YOUR hand:\n\n`;
+      let response = `**Your hand: ${notation}**\n\n`;
 
-      if (hasFlushDraw || hasOESD || hasGutshot) {
-        let totalOuts = 0;
-        let drawName = '';
+      if (totalOuts > 0 || draws.length > 0) {
+        response += `**Draws:**\n`;
+        if (draws.includes('flush draw')) {
+          response += `• Flush draw = 9 outs\n`;
+        }
+        if (draws.includes('open-ended straight draw')) {
+          response += `• Open-ended straight draw = 8 outs\n`;
+        }
+        if (draws.includes('gutshot')) {
+          response += `• Gutshot = 4 outs\n`;
+        }
+        if (draws.includes('backdoor flush draw')) {
+          response += `• Backdoor flush (needs 2 cards) = ~4% extra\n`;
+        }
 
-        if (hasFlushDraw) {
-          totalOuts += 9;
-          drawName = 'flush draw';
-          response += `**Flush draw:** 9 outs (13 cards of your suit minus 4 you see)\n`;
-        }
-        if (hasOESD) {
-          totalOuts += 8;
-          drawName = hasFlushDraw ? drawName + ' + OESD' : 'open-ended straight draw';
-          response += `**OESD:** 8 outs (4 cards on each end)\n`;
-        }
-        if (hasGutshot) {
-          totalOuts += 4;
-          drawName = drawName ? drawName + ' + gutshot' : 'gutshot';
-          response += `**Gutshot:** 4 outs (4 cards of one rank)\n`;
-        }
+        response += `\n**Total: ${totalOuts} outs**\n\n`;
 
         const street = hand.street;
         let equity = 0;
         if (street === 'flop') {
-          equity = totalOuts * 4; // Rough rule of 4
-          response += `\n**Your equity (flop, 2 cards to come):**\n`;
-          response += `${totalOuts} outs × 4 = ~${equity}%\n\n`;
+          equity = totalOuts * 4;
+          response += `**Equity (flop → river):**\n`;
+          response += `${totalOuts} outs × 4 = **~${equity}%**\n\n`;
         } else if (street === 'turn') {
-          equity = totalOuts * 2; // Rule of 2
-          response += `\n**Your equity (turn, 1 card to come):**\n`;
-          response += `${totalOuts} outs × 2 = ~${equity}%\n\n`;
+          equity = totalOuts * 2;
+          response += `**Equity (turn → river):**\n`;
+          response += `${totalOuts} outs × 2 = **~${equity}%**\n\n`;
+        } else if (street === 'preflop') {
+          response += `*Preflop - outs don't apply yet. Wait for flop.*\n\n`;
         }
 
         // Compare to pot odds
-        if (toCall > 0) {
+        if (toCall > 0 && equity > 0) {
           const potOdds = (toCall / (hand.pot + toCall) * 100);
-          response += `**Pot odds:** ${potOdds.toFixed(0)}%\n\n`;
+          response += `**Pot odds:** ${toCall.toFixed(1)}bb / ${(hand.pot + toCall).toFixed(1)}bb = ${potOdds.toFixed(0)}%\n\n`;
           if (equity > potOdds) {
-            response += `✓ Your equity (${equity}%) > pot odds (${potOdds.toFixed(0)}%). **CALL is profitable.**`;
+            response += `✅ **CALL** - Your equity (${equity}%) > pot odds (${potOdds.toFixed(0)}%)`;
           } else {
-            response += `✗ Your equity (${equity}%) < pot odds (${potOdds.toFixed(0)}%). **FOLD or raise as semi-bluff.**`;
+            const diff = potOdds - equity;
+            if (diff < 5) {
+              response += `⚠️ **CLOSE** - Equity (${equity}%) ≈ pot odds (${potOdds.toFixed(0)}%). Consider implied odds.`;
+            } else {
+              response += `❌ **FOLD** - Equity (${equity}%) < pot odds (${potOdds.toFixed(0)}%). Or raise as semi-bluff.`;
+            }
           }
-        } else {
-          response += `No bet facing you. You can bet as a semi-bluff or check for a free card.`;
+        } else if (equity > 0) {
+          response += `No bet facing you. **Semi-bluff** or **check** for free card.`;
         }
       } else {
-        response += `You don't have a draw right now. Your hand is ${handAnalysis.made}.\n\n`;
+        // No draws
+        response += `**Made hand:** ${handAnalysis.made}\n`;
+        response += `**Draws:** None\n\n`;
+
         if (handAnalysis.strength === 'strong') {
-          response += `But that's OK - you have a made hand! Bet for value.`;
+          response += `You have a strong made hand. No need for draws - **bet for value**.`;
+        } else if (handAnalysis.strength === 'medium') {
+          response += `Medium hand, no draws. **Check for pot control** or bet thin value.`;
         } else {
-          response += `Without a draw or made hand, this is a check/fold spot.`;
+          response += `Weak hand, no draws. This is a **check/fold** spot.`;
         }
       }
 
@@ -877,28 +942,30 @@ export default function PlayPage() {
 
     // === SIMPLE / BREAK DOWN / EXPLAIN SIMPLER ===
     if (hasAny('simpler', 'simple', 'basic', 'dumb it down', 'eli5', 'confused', 'don\'t understand', 'break down', 'break it down')) {
-      // Check for draws first
-      const hasFlushDraw = handAnalysis.draws.includes('flush draw') || handAnalysis.draws.includes('flush potential');
+      const outs = handAnalysis.outs;
+      const hasDraw = outs > 0 || handAnalysis.strength === 'draw';
 
       if (toCall > 0) {
         if (handAnalysis.strength === 'strong') {
-          return `Simple: You have a good hand (${handAnalysis.made}). They bet. Raise or call.`;
+          return `Simple: You have **${handAnalysis.made}** (strong). Raise or call.`;
         } else if (handAnalysis.strength === 'medium') {
-          return `Simple: You have an OK hand (${handAnalysis.made}). If they bluff a lot, call. If they're tight, fold.`;
-        } else if (handAnalysis.strength === 'draw' || hasFlushDraw) {
-          const equity = hasFlushDraw ? 36 : 17;
+          return `Simple: You have **${handAnalysis.made}** (OK). Call if they bluff a lot, fold if they're tight.`;
+        } else if (hasDraw) {
+          const equity = hand.street === 'flop' ? outs * 4 : outs * 2;
           const potOdds = (toCall / (hand.pot + toCall) * 100);
-          return `Simple: You have a draw (~${equity}% to hit). You need ${potOdds.toFixed(0)}% to call. ${equity > potOdds ? 'Math works - CALL.' : 'Math doesn\'t work - FOLD or semi-bluff.'}`;
+          return `Simple: You have **${handAnalysis.draws.join(' + ')}** (${outs} outs = ${equity}%). Pot odds = ${potOdds.toFixed(0)}%. ${equity > potOdds ? '✅ CALL' : '❌ FOLD'}`;
         } else {
-          return `Simple: You have nothing. Fold.`;
+          return `Simple: You have **${handAnalysis.made}** (weak). FOLD.`;
         }
       } else {
         if (handAnalysis.strength === 'strong') {
-          return `Simple: Good hand, they checked. Bet ~${(hand.pot * 0.66).toFixed(1)}bb for value.`;
-        } else if (handAnalysis.strength === 'draw' || hasFlushDraw) {
-          return `Simple: You have a draw. Bet ~${(hand.pot * 0.5).toFixed(1)}bb as a semi-bluff, or check for free card.`;
+          return `Simple: **${handAnalysis.made}** (strong). BET ${(hand.pot * 0.66).toFixed(1)}bb for value.`;
+        } else if (hasDraw) {
+          return `Simple: **${handAnalysis.draws.join(' + ')}**. Semi-bluff ${(hand.pot * 0.5).toFixed(1)}bb or CHECK for free card.`;
+        } else if (handAnalysis.strength === 'medium') {
+          return `Simple: **${handAnalysis.made}** (OK). Check or bet small.`;
         } else {
-          return `Simple: Weak hand. Check. Take your free card.`;
+          return `Simple: **${handAnalysis.made}** (weak). CHECK.`;
         }
       }
     }
@@ -912,47 +979,68 @@ export default function PlayPage() {
       if (lastTopicRef.current === 'odds') {
         return `Here's the simple version:\n\nPot is ${hand.pot.toFixed(1)}bb. You need to put in ${toCall.toFixed(1)}bb.\n\nAsk: "If I call 100 times, do I win enough pots to profit?"\n\nWith a flush draw you win about 35 times. So if 35 × pot > 100 × call, it's profitable.`;
       }
-      // Default: just tell them what to do
+      // Default: just tell them what to do based on current hand
       if (handAnalysis.strength === 'strong') {
-        return `You have ${handAnalysis.made}. That's good. ${toCall > 0 ? 'Raise or call.' : 'Bet for value.'} Don't overthink it.`;
+        return `**${handAnalysis.made}** = strong. ${toCall > 0 ? 'RAISE or CALL.' : 'BET for value.'}`;
+      } else if (handAnalysis.strength === 'draw') {
+        const equity = hand.street === 'flop' ? handAnalysis.outs * 4 : handAnalysis.outs * 2;
+        if (toCall > 0) {
+          const potOdds = (toCall / (hand.pot + toCall) * 100);
+          return `**${handAnalysis.draws.join(' + ')}** = ${equity}% equity vs ${potOdds.toFixed(0)}% pot odds. ${equity > potOdds ? 'CALL.' : 'FOLD.'}`;
+        }
+        return `**${handAnalysis.draws.join(' + ')}** = draw. Semi-bluff or check.`;
       } else if (handAnalysis.strength === 'medium') {
-        return `You have ${handAnalysis.made}. It's OK but not great. ${toCall > 0 ? 'Call if villain is loose, fold if tight.' : 'Small bet or check.'} Keep it simple.`;
+        return `**${handAnalysis.made}** = OK. ${toCall > 0 ? 'Call vs bluffers, fold vs tight.' : 'Check or small bet.'}`;
       } else {
-        return `You have ${handAnalysis.made}. That's weak. ${toCall > 0 ? 'Fold.' : 'Check.'} Save your chips for better spots.`;
+        return `**${handAnalysis.made}** = weak. ${toCall > 0 ? 'FOLD.' : 'CHECK.'}`;
       }
     }
 
     // === HOW TO THINK / DECIDE ===
     if (hasAny('how to think', 'how should i think', 'how do i decide', 'what to do', 'how to approach', 'help me decide', 'what should i do')) {
-      // Give a simple decision framework for the current situation
-      let response = `OK, let's think through this step by step.\n\n`;
+      let response = `**Step-by-step for this hand:**\n\n`;
 
-      response += `**1. What do you have?**\n`;
-      response += `${notation} on ${board.length > 0 ? board.map(c => c.rank + c.suit).join('-') : 'preflop'} = ${handAnalysis.made}. That's ${handAnalysis.strength}.\n\n`;
+      response += `**1. Your hand:** ${notation}\n`;
+      response += `• Made: ${handAnalysis.made}\n`;
+      if (handAnalysis.draws.length > 0) {
+        response += `• Draws: ${handAnalysis.draws.join(', ')} (${handAnalysis.outs} outs)\n`;
+      }
+      response += `• Strength: **${handAnalysis.strength.toUpperCase()}**\n\n`;
 
-      response += `**2. What's the action?**\n`;
+      response += `**2. The action:**\n`;
       if (toCall > 0) {
-        response += `You face a ${toCall.toFixed(1)}bb bet into ${hand.pot.toFixed(1)}bb.\n\n`;
+        const potOdds = (toCall / (hand.pot + toCall) * 100);
+        response += `• Facing ${toCall.toFixed(1)}bb bet into ${hand.pot.toFixed(1)}bb\n`;
+        response += `• Pot odds: ${potOdds.toFixed(0)}%\n`;
+        if (handAnalysis.outs > 0) {
+          const equity = hand.street === 'flop' ? handAnalysis.outs * 4 : handAnalysis.outs * 2;
+          response += `• Your equity: ${equity}%\n`;
+        }
+        response += `\n`;
+
         response += `**3. Decision:**\n`;
         if (handAnalysis.strength === 'strong') {
-          response += `Strong hand + facing bet = RAISE or CALL. You're winning. Make them pay or trap them.`;
+          response += `Strong hand → **RAISE** for value or **CALL** to trap.`;
         } else if (handAnalysis.strength === 'medium') {
-          response += `Medium hand + facing bet = CALL or FOLD. Ask: Is ${mainVillain?.name || 'villain'} bluffing often? ${mainVillain?.playerType === 'LAG' || mainVillain?.playerType === 'MANIAC' ? 'Yes, call.' : mainVillain?.playerType === 'NIT' ? 'Rarely, fold.' : 'Sometimes, tough call.'}`;
+          const villainBluffs = mainVillain?.playerType === 'LAG' || mainVillain?.playerType === 'MANIAC';
+          response += `Medium hand → ${villainBluffs ? '**CALL** (villain bluffs)' : '**FOLD** (villain is tight)'}`;
         } else if (handAnalysis.strength === 'draw') {
-          const odds = hand.pot / toCall;
-          response += `Draw + facing bet = check odds. You're getting ${odds.toFixed(1)}:1. Flush draw needs ~3:1. ${odds > 3 ? 'Call.' : 'Fold or raise as semi-bluff.'}`;
+          const equity = hand.street === 'flop' ? handAnalysis.outs * 4 : handAnalysis.outs * 2;
+          response += `Draw (${equity}% equity) → ${equity > potOdds ? '**CALL** (equity > pot odds)' : '**FOLD** or semi-bluff **RAISE**'}`;
         } else {
-          response += `Weak hand + facing bet = FOLD. Don't call with nothing.`;
+          response += `Weak hand → **FOLD**`;
         }
       } else {
-        response += `Checked to you. Pot: ${hand.pot.toFixed(1)}bb.\n\n`;
+        response += `• Checked to you, pot is ${hand.pot.toFixed(1)}bb\n\n`;
         response += `**3. Decision:**\n`;
         if (handAnalysis.strength === 'strong') {
-          response += `Strong hand + checked to you = BET. About ${(hand.pot * 0.66).toFixed(1)}bb (2/3 pot). Get value.`;
+          response += `Strong hand → **BET ${(hand.pot * 0.66).toFixed(1)}bb** for value`;
+        } else if (handAnalysis.strength === 'draw') {
+          response += `Draw → **BET ${(hand.pot * 0.5).toFixed(1)}bb** as semi-bluff or **CHECK** for free card`;
         } else if (handAnalysis.strength === 'medium') {
-          response += `Medium hand + checked to you = BET SMALL or CHECK. ${mainVillain?.playerType === 'FISH' ? 'Bet small vs fish who call.' : 'Check for pot control.'}`;
+          response += `Medium hand → **CHECK** for pot control or small bet`;
         } else {
-          response += `Weak hand + checked to you = CHECK. Take your free card.`;
+          response += `Weak hand → **CHECK**`;
         }
       }
 
