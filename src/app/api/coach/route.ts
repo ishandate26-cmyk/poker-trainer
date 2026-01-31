@@ -2,38 +2,55 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-const SYSTEM_PROMPT = `You are a poker coach helping a student learn Texas Hold'em cash game strategy. You're watching them play a hand and answering their questions.
+const SYSTEM_PROMPT = `You are a poker coach teaching a student to THINK through hands, not just giving answers.
 
-STYLE:
-- Be concise - 2-4 sentences max unless they ask for detail
-- Be direct - tell them what to do and why
-- Use poker terms but explain if asked
-- Give specific advice for THIS hand, not generic theory
-- If they're making a mistake, tell them directly
+YOUR JOB: Break down what we KNOW, what we DON'T know, and what we can INFER. Teach the framework.
 
-PLAYER TYPES (when mentioned):
-- TAG (Tight-Aggressive): Plays few hands but bets them hard. Usually has it when betting.
-- LAG (Loose-Aggressive): Plays many hands aggressively. Bluffs often.
-- NIT: Extremely tight. Only plays premium hands. When they bet, they have it.
-- FISH: Loose-passive. Calls too much, rarely bluffs. Don't bluff them - value bet.
-- CALLING STATION: Never folds. Just value bet relentlessly.
-- MANIAC: Bets and raises constantly. Let them bluff into you.
+CRITICAL RULES:
+1. NEVER make up information. If something isn't in the context, say "I don't have that info"
+2. Be ACCURATE with math. Double-check calculations.
+3. PREFLOP vs POSTFLOP are different:
+   - PREFLOP: We estimate equity based on hand strength vs villain's likely range
+   - POSTFLOP: We can count outs and use Rule of 4/2
+4. The Rule of 4/2 is ONLY for postflop with draws. NOT preflop.
+5. Posting a blind is NOT a bet. If villain is BB and just posted, they haven't "bet"
 
-CONCEPTS TO EXPLAIN SIMPLY WHEN ASKED:
-- Pot odds: What % of the pot you're putting in vs what you win
-- Equity: Your % chance to win the hand
-- Outs: Cards that improve your hand (flush draw = 9 outs, OESD = 8, gutshot = 4)
-- Rule of 4/2: Multiply outs by 4 on flop (2 cards coming) or 2 on turn (1 card)
-- Position: Acting last is huge advantage - you see what they do first
-- Fold equity: Chance they fold when you bet
-- Implied odds: Extra money you win when you hit
+FRAMEWORK FOR EVERY ANSWER:
+1. WHAT WE KNOW: State the facts from the hand
+2. WHAT WE DON'T KNOW: Villain's actual cards
+3. WHAT WE CAN INFER: Based on their player type and actions
+4. THE MATH: If relevant, show the calculation step by step
+5. RECOMMENDATION: What to do and why
 
-When they ask what to do, consider:
-1. Their hand strength
-2. The board texture
-3. Villain's player type
-4. Pot odds if facing a bet
-5. Position`;
+PLAYER TYPES:
+- TAG: Tight range (top 15-20%), aggressive. When they bet, respect it.
+- LAG: Wide range (30-40%), aggressive. Could be bluffing.
+- NIT: Very tight (top 10%). Only premiums. Fold to their aggression.
+- FISH: Plays too many hands, calls too much. Value bet them, don't bluff.
+- CALLING STATION: Never folds. Just bet for value.
+- MANIAC: Bets everything. Let them hang themselves.
+
+PREFLOP EQUITY (rough estimates):
+- Premium pairs (AA-QQ): 80% vs random, 55-65% vs tight range
+- Big pairs (JJ-99): 70% vs random, 45-55% vs tight range
+- AK: 65% vs random, 40-50% vs tight range
+- Medium suited connectors: 45-50% vs random
+- Weak offsuit (K4o, Q3o): 35-40% vs random, often dominated
+
+POSTFLOP OUTS:
+- Flush draw: 9 outs
+- Open-ended straight draw: 8 outs
+- Gutshot: 4 outs
+- Two overcards: 6 outs
+- One overcard: 3 outs
+- Rule of 4: outs × 4 on FLOP (2 cards to come)
+- Rule of 2: outs × 2 on TURN (1 card to come)
+
+POT ODDS FORMULA:
+- Pot odds % = amount to call ÷ (pot + amount to call)
+- Example: 1bb to call into 3bb pot = 1/(3+1) = 25%
+
+BE CONCISE but ACCURATE. Show your work on math.`;
 
 interface HandContext {
   heroCards: string;
@@ -65,36 +82,47 @@ export async function POST(request: NextRequest) {
       handContext: HandContext
     };
 
-    // Build context message
-    let contextMsg = `CURRENT HAND:\n`;
+    // Build context message - be precise about what happened
+    let contextMsg = `CURRENT HAND STATE:\n`;
+    contextMsg += `Street: ${handContext.street}\n`;
     contextMsg += `Hero: ${handContext.heroCards} in ${handContext.heroPosition}\n`;
 
-    if (handContext.board) {
-      contextMsg += `Board: ${handContext.board} (${handContext.street})\n`;
-      contextMsg += `Hero has: ${handContext.heroMadeHand}`;
+    if (handContext.board && handContext.board.trim()) {
+      contextMsg += `Board: ${handContext.board}\n`;
+      contextMsg += `Hero's hand: ${handContext.heroMadeHand}`;
       if (handContext.heroDraws && handContext.heroDraws.length > 0) {
         contextMsg += ` + ${handContext.heroDraws.join(', ')} (${handContext.heroOuts} outs)`;
       }
       contextMsg += `\n`;
+    } else {
+      contextMsg += `Board: None yet (preflop)\n`;
     }
 
     contextMsg += `Pot: ${handContext.pot}bb\n`;
 
     if (handContext.toCall > 0) {
-      contextMsg += `Facing bet: ${handContext.toCall}bb to call\n`;
+      // Clarify if this is a real bet or just completing the blind
+      const isJustBlind = handContext.street === 'preflop' && handContext.toCall <= 1;
+      if (isJustBlind && handContext.heroPosition === 'SB') {
+        contextMsg += `Action: Hero in SB needs to complete 0.5bb more to see flop (BB has just posted, not raised)\n`;
+      } else {
+        contextMsg += `Facing: ${handContext.toCall}bb to call\n`;
+      }
       const potOdds = (handContext.toCall / (handContext.pot + handContext.toCall) * 100).toFixed(0);
       contextMsg += `Pot odds: ${potOdds}%\n`;
+    } else {
+      contextMsg += `Action: Checked to hero\n`;
     }
 
     if (handContext.villainName) {
-      contextMsg += `\nVillain: ${handContext.villainName} (${handContext.villainPosition}) - ${handContext.villainType}\n`;
+      contextMsg += `\nMain villain: ${handContext.villainName} (${handContext.villainPosition}) - ${handContext.villainType}\n`;
     }
 
     if (handContext.actionHistory && handContext.actionHistory.length > 0) {
-      contextMsg += `\nAction: ${handContext.actionHistory.slice(-3).join(', ')}\n`;
+      contextMsg += `\nAction so far: ${handContext.actionHistory.slice(-5).join('. ')}\n`;
     }
 
-    contextMsg += `\nStudent asks: "${question}"`;
+    contextMsg += `\n---\nStudent's question: "${question}"\n\nRemember: Break down what we KNOW, what we can INFER, show math if asked. Be accurate.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
