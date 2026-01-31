@@ -50,11 +50,18 @@ DO:
 CRITICAL - UNDERSTAND THE ACTION:
 - "Checked to hero" = NO bet to call. Hero can CHECK (free) or BET. Cannot fold.
 - "Facing Xbb to call" = There IS a bet. Hero can CALL, RAISE, or FOLD.
-- NEVER say "fold" when it's checked to hero - that's not an option!`;
+- NEVER say "fold" when it's checked to hero - that's not an option!
+
+CRITICAL - UNDERSTAND HAND STRENGTH:
+- If context says "hero doesn't connect" or "just board pair" = hero has NOTHING. Don't treat it as a real pair.
+- "One Pair" on a paired board where hero doesn't connect = effectively HIGH CARD (very weak)
+- Position matters: acting last (in position) is a big advantage
+- Multiway pots: be more cautious, less bluffing`;
 
 interface HandContext {
   heroCards: string;
   heroPosition: string;
+  heroStack: number;
   board: string;
   pot: number;
   toCall: number;
@@ -62,10 +69,14 @@ interface HandContext {
   villainName?: string;
   villainPosition?: string;
   villainType?: string;
+  villainStack?: number;
   heroMadeHand?: string;
+  heroConnectsWithBoard?: boolean; // Does hero's hand actually connect, or just board pair?
   heroDraws?: string[];
   heroOuts?: number;
   actionHistory?: string[];
+  playersInHand?: number;
+  heroIsInPosition?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -83,22 +94,32 @@ export async function POST(request: NextRequest) {
     };
 
     // Build context message - be precise about what happened
-    let contextMsg = `CURRENT HAND STATE:\n`;
+    let contextMsg = `HAND STATE:\n`;
     contextMsg += `Street: ${handContext.street}\n`;
-    contextMsg += `Hero: ${handContext.heroCards} in ${handContext.heroPosition}\n`;
+    contextMsg += `Hero: ${handContext.heroCards} in ${handContext.heroPosition} (${handContext.heroStack}bb stack)\n`;
 
     if (handContext.board && handContext.board.trim()) {
       contextMsg += `Board: ${handContext.board}\n`;
-      contextMsg += `Hero's hand: ${handContext.heroMadeHand}`;
-      if (handContext.heroDraws && handContext.heroDraws.length > 0) {
-        contextMsg += ` + ${handContext.heroDraws.join(', ')} (${handContext.heroOuts} outs)`;
+
+      // Be specific about hand strength
+      if (handContext.heroConnectsWithBoard === false) {
+        contextMsg += `Hero's hand: ${handContext.heroMadeHand} (BUT hero doesn't connect - just board pair, effectively air)\n`;
+      } else {
+        contextMsg += `Hero's hand: ${handContext.heroMadeHand}`;
+        if (handContext.heroDraws && handContext.heroDraws.length > 0) {
+          contextMsg += ` + ${handContext.heroDraws.join(', ')} (${handContext.heroOuts} outs)`;
+        }
+        contextMsg += `\n`;
       }
-      contextMsg += `\n`;
     } else {
       contextMsg += `Board: None yet (preflop)\n`;
     }
 
+    // Pot and players
     contextMsg += `Pot: ${handContext.pot}bb\n`;
+    if (handContext.playersInHand && handContext.playersInHand > 2) {
+      contextMsg += `Players in hand: ${handContext.playersInHand} (MULTIWAY)\n`;
+    }
 
     if (handContext.toCall > 0) {
       // Clarify if this is a real bet or just completing the blind
@@ -115,7 +136,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (handContext.villainName) {
-      contextMsg += `\nMain villain: ${handContext.villainName} (${handContext.villainPosition}) - ${handContext.villainType}\n`;
+      contextMsg += `\nVillain: ${handContext.villainName} (${handContext.villainPosition}, ${handContext.villainStack}bb) - ${handContext.villainType}\n`;
+      contextMsg += `Position: ${handContext.heroIsInPosition ? 'Hero acts LAST (has position)' : 'Hero acts FIRST (out of position)'}\n`;
     }
 
     if (handContext.actionHistory && handContext.actionHistory.length > 0) {

@@ -1456,10 +1456,29 @@ export default function PlayPage() {
     addMessage('user', response);
     setIsThinking(true);
 
+    // Check if hero actually connects with the board or just has board pair
+    const heroConnectsWithBoard = hand.board.length > 0 ? (() => {
+      const heroRanks = hero.cards.map(c => c.rank);
+      const boardRanks = hand.board.map(c => c.rank);
+      // Hero connects if they share a rank with board, or have a pocket pair, or have a draw
+      const sharesRank = heroRanks.some(r => boardRanks.includes(r));
+      const hasPocketPair = heroRanks[0] === heroRanks[1];
+      const hasDraws = heroAnalysis.draws.length > 0;
+      return sharesRank || hasPocketPair || hasDraws;
+    })() : true;
+
+    // Check position
+    const heroIsInPosition = mainVillain ?
+      POSITIONS.indexOf(hero.position) > POSITIONS.indexOf(mainVillain.position) : true;
+
+    // Count players still in hand
+    const playersInHand = hand.players.filter(p => !p.isFolded).length;
+
     // Build context for the AI
     const handContext = {
       heroCards: `${hero.cards[0].rank}${hero.cards[0].suit} ${hero.cards[1].rank}${hero.cards[1].suit}`,
       heroPosition: hero.position,
+      heroStack: hero.stack,
       board: hand.board.map(c => `${c.rank}${c.suit}`).join(' '),
       pot: hand.pot,
       toCall,
@@ -1467,10 +1486,14 @@ export default function PlayPage() {
       villainName: mainVillain?.name,
       villainPosition: mainVillain?.position,
       villainType: mainVillain ? PLAYER_PROFILES[mainVillain.playerType].name : undefined,
+      villainStack: mainVillain?.stack,
       heroMadeHand: heroEval?.rankName || heroAnalysis.made,
+      heroConnectsWithBoard,
       heroDraws: heroAnalysis.draws,
       heroOuts: heroAnalysis.outs,
       actionHistory: hand.actionHistory.slice(-5),
+      playersInHand,
+      heroIsInPosition,
     };
 
     try {
