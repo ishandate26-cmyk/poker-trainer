@@ -1677,7 +1677,7 @@ export default function PlayPage() {
               </button>
               <h3 className="text-sm font-semibold mb-2 text-gray-400">
                 {hand?.street === 'preflop' && hand.lastAggressorPosition
-                  ? `${hero.position} vs ${hand.lastAggressorPosition} open (green=3bet, yellow=call)`
+                  ? `${hero.position} vs ${hand.lastAggressorPosition} open`
                   : `${hero.position} Opening Range`}
               </h3>
               <RangeGrid
@@ -1686,6 +1686,34 @@ export default function PlayPage() {
                 heroHand={cardsToHandNotation(hero.cards)}
                 readOnly
               />
+              {/* Legend */}
+              <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 bg-pink-500 rounded ring-2 ring-white"></div>
+                  <span className="text-gray-300">Your hand</span>
+                </div>
+                {hand?.street === 'preflop' && hand.lastAggressorPosition ? (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 bg-green-600 rounded"></div>
+                      <span className="text-gray-300">3-bet</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 bg-yellow-600 rounded"></div>
+                      <span className="text-gray-300">Call</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 bg-yellow-600 rounded"></div>
+                    <span className="text-gray-300">Open/Raise</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 bg-gray-700 rounded"></div>
+                  <span className="text-gray-300">Fold</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
